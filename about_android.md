@@ -61,8 +61,12 @@
 
 39. 如果需要执行一些耗时的操作，你会怎么做
 40. 安卓打出的包有哪些文件
-41. App 瘦身有哪些方式
-42. AIDL 的实现原理
-43. 跨进程有哪些通信方式
+    Android 打包生成的是 APK 文件，本质是一个 zip 压缩包，里面主要包含 
+AndroidManifest.xml 声明组件和权限
+代码编译成的 classes.dex
+res 资源目录、assets 资源目录、resources.arsc、(各类资源目录、arsc资源索引R.id查询)
+lib 动态库 以及 META-INF 签名信息等。
+42. App 瘦身有哪些方式
+
 44. 怎么用 AI 工具开发，需要注意什么
 45. 了解 Skills 和 MCP 吗
