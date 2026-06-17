@@ -182,6 +182,21 @@ meminfo 里的 PSS、Java Heap、Native Heap 来判断是 Java 层泄漏还是 N
 如果是开发过程中，可以接入leakcanary辅助定位泄漏
 
 通过引用链分析 GC Root 找到具体原因。
+
+22. Alarmanager、WorkManager、JobSchedule的区别和联系？
+Alarmanager、WorkManager、JobSchedule的区别和联系？
+AlarmManager 是早期 Android 中常用的定时任务机制，可以在指定时间或周期触发一个 PendingIntent（例如启动组件 或 发送广播）。
+优点是定时比较精确、使用简单。但缺点是容易被应用频繁使用唤醒设备，比较耗电，而且在 Doze 等省电机制下很多任务会被系统延迟执行。
+
+后来 Android 引入了 JobScheduler，开发者可以为任务设置执行条件，比如需要网络、设备充电或者设备空闲等。启动一个 JobService ，条件满足后回调的方式执行任务，从而减少设备唤醒次数，更加省电。
+但 JobScheduler 只支持 Android 5.0 及以上版本。
+
+为了解决不同 Android 版本兼容的问题，Google 在 Jetpack 中封装了 WorkManager 框架，它会根据系统版本自动选择底层实现：在高版本系统上使用 JobScheduler，在低版本上使用 AlarmManager。
+同时它还支持任务链、任务重试以及任务持久化等功能。
+总结来说：
+- AlarmManager：主要用于定时任务，时间较精确
+- JobScheduler：系统级后台任务调度，可以设置执行条件
+- WorkManager：Jetpack 提供的统一后台任务方案，内部适配 JobScheduler 和 AlarmManager，现在官方更推荐使用 WorkManager 来执行后台任务。
     
 
 ## 网络
@@ -212,13 +227,23 @@ Handler 只适合进程存活期间的短期调度，如果需要在后台或设
 ## View 与 UI
 
 27. View 的绘制流程
-28. View 事件分发机制
-29. 自定义 View 要重写哪些方法
-30. MotionEvent 除了坐标、类型还有哪些常用的属性
 31. 屏幕视图刷新原理，涉及哪些进程、组件
-32. 怎么解决滑动冲突
-33. 怎么排查掉帧问题，原因有哪些
-34. 安卓中动画有哪些种类，插值器的实现
+    
+34. 安卓中动画有哪些种类
+Android 主要有 **三种动画**：
+1、View Animation（补间动画 / Tween Animation）
+对 View 做简单平移缩放等变换：
+但只改变显示效果，不会改变 View 的真实属性和位置
+例如点击新位置不会响应，view实际还是原来的位置。
+
+2、Frame Animation（帧动画）
+一张一张图片连续播放形成动画。缺点是内存占用大，而且动画效果固定、不够灵活。
+
+3、Property Animation（属性动画）
+Android 3.0 引入，现在开发**最常用**。
+直接修改对象属性值，可以作用于 任何对象，View 的状态会真实改变
+
+
 35. 悬浮窗怎么实现
 36. 使用 `WindowManager.addView` 涉及哪些操作，假设两个窗口的层级一样会发生什么
 37. 三指、四指操作怎么实现
