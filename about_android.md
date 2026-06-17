@@ -130,25 +130,84 @@ Full GC
 
 
 18. LeakCanary 的原理
-19. 弱引用的底层原理
-20. 怎么排查内存泄漏问题
+LeakCanary 通过监听 Activity/Fragment 的 onDestroy 找到理论上应该被回收的对象，
+再通过 WeakReference + ReferenceQueue 判断对象是否真的被 GC 回收，
+如果检测到没有回收，就会自动 dump heap 导出堆信息并提示可能的泄漏对象。
 
-## 并发
+具体流程大致分几步：
+第一步：监听 Activity / Fragment 的生命周期
+LeakCanary 会通过 Application.registerActivityLifecycleCallbacks 监听 Activity 生命周期。
+监听到 Activity 或 Fragment 执行 onDestroy() 时，说明这个对象理论上应该可以被回收了。
 
-19. ConcurrentHashMap 的底层原理
-20. synchronized 和 volatile 的区别
+---
+第二步：使用 WeakReference 监控对象
+LeakCanary 会把这个 Activity 包装成 WeakReference，并放进一个监控集合。
+因为 WeakReference 不会阻止 GC 回收对象。
+如果这个 Activity 没有被其他对象引用，在下一次 GC 时就会被回收。
+
+---
+第三步：通过 ReferenceQueue 判断是否被回收
+LeakCanary 会配合 ReferenceQueue：
+- 如果对象被 GC 回收
+- 对应的 WeakReference 会进入 ReferenceQueue
+所以 如果onDestory()一段时间后这个引用没有进入队列，说明：
+这个对象仍然被其他对象持有引用，可能发生了内存泄漏。
+
+
+20. 弱引用的底层原理？和虚引用的区别是？
+在 JVM 可达性分析过程中，WeakReference 的 referent 不会被当作强可达路径参与对象图遍历；
+当对象只被弱引用关联时，会被判定为弱可达对象，并在 GC 的处理阶段被回收，
+同时清空 WeakReference 的 referent，如果绑定了 ReferenceQueue，则会将该引用入队
+
+- WeakReference：对象在 GC 判定为弱可达时，JVM会先清空 referent，然后再入队。此时对象已经没有可访问引用，基本等价于“对象已经被清理/即将被回收”的通知。
+- PhantomReference：对象在 即将被真正回收前 会被入队，此时 JVM 保证对象不会再被访问或复活，主要给程序一个机会去做 资源清理（比如释放堆外内存）。
+所以可以理解：
+- WeakReference：对象被判定可回收后的通知
+- PhantomReference：对象真正回收前的最后通知
+
+21. 怎么排查内存泄漏问题
+一般分三步：
+先通过内存监控发现问题 → 
+怀疑某个功能有内存问题，先通过 adb 查看进程内存使用情况。
+adb shell dumpsys meminfo 包名
+meminfo 里的 PSS、Java Heap、Native Heap 来判断是 Java 层泄漏还是 Native 层问题
+反复操作某个场景，比如 反复进入退出某个 Activity 或页面。
+如果发现：
+- Java Heap 持续增长
+- 多次 GC 后内存仍然没有下降
+说明可能存在 对象没有被正确释放。
+
+使用Heap Dump 或 LeakCanary 定位泄漏对象 → 
+确认可能存在泄漏后，可以导出堆信息
+如果是开发过程中，可以接入leakcanary辅助定位泄漏
+
+通过引用链分析 GC Root 找到具体原因。
+    
 
 ## 网络
 
 21. TCP 的复用是怎么做的
 22. HTTP 1.1 和 HTTP 2.0 连接复用的区别
 23. OkHttp 的连接池是什么，怎么用的
-24. 电量和网络对 App 的影响有了解过吗
+    
+25. 电量和网络对 App 的影响有了解过吗
+电量和网络对 App 的影响?
+电量和网络属于系统资源约束，Android 会通过电源管理和网络策略限制 App 的后台行为。
+
+电量方面，系统有 Doze 和 App Standby 等省电机制。当设备长时间不用或者 App 很少被打开时，系统会限制后台任务、网络访问以及定时任务的执行，所以很多后台任务需要通过 WorkManager 或 JobScheduler 来调度。
+
+网络方面，主要是网络状态和网络类型的变化，比如 WiFi、移动网络或者无网情况。App 需要监听网络变化，并做好重试、缓存或者在合适的网络条件下再执行请求。
+
+总结就是：App 需要根据电量状态和网络状态合理调度任务和网络请求，避免在系统受限的情况下执行大量后台操作。
 
 ## Handler 与线程
 
 25. Handler 的 `postDelay` 为什么切到后台就不生效了
-26. Handler 内存泄漏问题
+Handler 的 postDelayed 本质是把 Runnable 封装成 Message，并计算执行时间 when = SystemClock.uptimeMillis() + delay，然后按时间顺序插入 MessageQueue
+Looper 不断调用 MessageQueue.next()，当当前 uptimeMillis >= message.when 时就取出执行。
+由于 postDelayed 使用的是 SystemClock.uptimeMillis 作为时间基准，而 uptimeMillis 在设备 deep sleep 时不会增长，当应用进入后台设备进入 sleep 时计时会暂停，因此任务会被明显延迟，看起来像 postDelayed 失效。
+因此：
+Handler 只适合进程存活期间的短期调度，如果需要在后台或设备休眠期间仍然按时执行，通常需要使用 AlarmManager 或 WorkManager。
 
 ## View 与 UI
 
