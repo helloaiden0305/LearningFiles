@@ -542,9 +542,11 @@ WorkManager 是现代 Android 推荐的后台任务方案，Service 只在必须
 
 ---
 
-### Intent 传输数据的大小有限制吗？如何解决？
+### ？Intent 传输数据的大小有限制吗？如何解决？
 
 **回答：**
+Intent 传输数据的大小确实有限制，本质原因是 Intent 在系统内部通过 Binder IPC 传递，而 Binder 单次事务大小限制大约是 1MB。
+如果传输数据过大会抛 TransactionTooLargeException。通常的解决方案是只通过 Intent 传递轻量数据，例如 ID 或路径，大数据通过文件、数据库或缓存等方式共享。
 
 - **有限制**，大约 1MB 左右，超过会抛 `TransactionTooLargeException`。
 - **解决方法：**
