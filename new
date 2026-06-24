@@ -1,15 +1,17 @@
-拷打项目
-concurrenthashmap 底层
-弱引用的底层原理
-Handler内存泄漏问题
-okhttp连接池是什么 怎么用的
-TCP的复用怎么做的
-http1.1和2.0连接复用的区别
-handler的postDelay为什么切到后台就不生效了
-电量和网络对app的影响有了解过吗
+1. 弱引用的底层原理
+在 JVM 的可达性分析中，WeakReference 不会阻止对象被 GC；当对象只剩弱引用时，GC 会清空 referent，并将 WeakReference 放入 ReferenceQueue。
+核心机制就是两点：
+Reference 体系（WeakReference 类）
+GC 在 Reference 处理阶段主动清理。
+
+
+2.TCP的复用怎么做的
+实际业务开发中，我们常说的“TCP复用”往往是指在同一个TCP长连接上，并发发送和接收多个独立的应用层请求。这样做的目的是为了避免频繁建立和断开连接（三次握手/四次挥手）带来的巨大性能开销。
+常见的实现方式包括：
+HTTP/1.1 的 Keep-Alive（串行复用）： 通过设置 Connection: keep-alive 保持TCP连接不断开。但它的请求必须是串行的，即前一个请求的响应完全返回后，才能发送下一个请求。这种方式存在**队头阻塞（Head-of-Line Blocking）**问题，一旦前面的请求卡住，后面的请求都会被阻塞。
+HTTP/2 的多路复用（并行复用）： 这是真正的多路复用。HTTP/2 将数据划分为更小的二进制帧（Frame），并引入了流（Stream）的概念。每个流都有一个唯一的Stream ID。不同请求的帧可以交错、无序地在同一个TCP连接上发送，接收端收到后，再根据报文头里的 Stream ID 将它们重新组装。这样在同一个TCP连接上可以完全并发地处理多个请求，彻底解决了应用层的队头阻塞。
+
 fragment生命周期中onCreatedView和onViewCreated的区别 如果初始化一个View在哪里(onViewCreated)
-安卓启动模式的SingleTask和SingleTop的区别 使用场景
-synchronized 和 volatile的区别
-安卓主线程为什么不能做耗时操作 会出现什么问题(ANR) 超过多久会出问题
-MVP和MVVM的区别
+
+
 
