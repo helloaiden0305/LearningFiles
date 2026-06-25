@@ -885,9 +885,10 @@ RSS ≈ Private + Code/Dex + Shared Memory + Graphics
 
 ---
 
-### 为什么 Handler 会引起内存泄漏？
+### ？为什么 Handler 会引起内存泄漏？
 
-如果 Handler 是一个 Activity 中的非静态的内部类。那么在编译的时候，Java 编译器会给这个 Handler 创建一个外部类对象实例的引用，也就是 `Activity.this`，可以在 `handleMessage()` 的时候用于访问外部对象。
+如果 Handler 是一个 Activity 中的非静态的内部类。Java 中普通的内部类被设计成可以随意访问外部类
+那么在编译的时候，Java 编译器会给这个 Handler 创建一个外部类对象实例的引用，也就是 Activity.this，可以在 handleMessage() 的时候用于访问外部对象。
 
 此时，如果 Handler 的 MessageQueue 里还有消息没有处理完，就会形成一条：
 
