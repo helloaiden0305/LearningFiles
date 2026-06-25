@@ -1054,17 +1054,29 @@ LeakCanary 会配合 `ReferenceQueue`：
 
 ### 内存回收中使用弱引用的底层原理？和虚引用的区别是？
 
-在 JVM 可达性分析过程中，`WeakReference` 的 `referent` 不会被当作强可达路径参与对象图遍历；当对象只被弱引用关联时，会被判定为弱可达对象，并在 GC 的处理阶段被回收，同时清空 `WeakReference` 的 `referent`，如果绑定了 `ReferenceQueue`，则会将该引用入队。
+在 JVM 可达性分析过程中，WeakReference 的 referent 不会被当作强可达路径参与对象图遍历；
+当对象只被弱引用关联时，会被判定为弱可达对象，并在 GC 的处理阶段被回收，同时断开 WeakReference 的 referent，如果绑定了 ReferenceQueue，则会将该引用入队。
 
-| 引用类型 | 说明 |
-|---------|------|
-| **WeakReference** | 对象在 GC 判定为弱可达时，JVM 会先清空 `referent`，然后再入队。此时对象已经没有可访问引用，基本等价于"对象已经被清理/即将被回收"的通知 |
-| **PhantomReference** | 对象在**即将被真正回收前**会被入队，此时 JVM 保证对象不会再被访问或复活，主要给程序一个机会去做资源清理（比如释放堆外内存） |
+弱引用（WeakReference）的入队时机
+- GC 扫描到对象只剩弱引用时：对象会被标记为可回收。
+- 入队顺序：
+  1. 弱引用本身会被清除（get() 返回 null）。
+  2. 如果弱引用和 ReferenceQueue 绑定，弱引用对象会 立即入队。
+  3. 之后才可能执行对象的 finalize() 方法。
+- 关键点：弱引用的入队可能发生在 finalize() 之前，因此在 finalize() 里如果又产生了新的强引用，可能导致对象“复活”，这就是所谓的 对象复活问题。
 
-> 所以可以理解：
-> - **WeakReference：** 对象被判定可回收后的通知
-> - **PhantomReference：** 对象真正回收前的最后通知
+虚引用（PhantomReference）的入队时机
+- GC 扫描到对象只剩虚引用时：对象会被标记为可回收。
+- 入队顺序：
+  1. 先执行对象的 finalize() 方法（如果有）。
+  2. 确保对象彻底不可达、清理关系完毕。
+  3. 虚引用才会被 入队到 ReferenceQueue。
+- 关键点：虚引用的入队发生在 finalize() 之后，保证对象不会再被复活。
+→ 这也是虚引用常用于 资源清理（比如堆外内存释放） 的原因
 
+所以可以理解：
+- WeakReference： 对象被判定可回收后的通知
+- PhantomReference： 对象真正回收前的最后通知
 ---
 
 ### 具体怎么排查内存泄漏问题？
