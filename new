@@ -1,17 +1,19 @@
-1. 弱引用的底层原理
-在 JVM 的可达性分析中，WeakReference 不会阻止对象被 GC；当对象只剩弱引用时，GC 会清空 referent，并将 WeakReference 放入 ReferenceQueue。
-核心机制就是两点：
-Reference 体系（WeakReference 类）
-GC 在 Reference 处理阶段主动清理。
+Socket：为什么切换多？（关键点：4次 syscall + 4次数据复制） Socket 属于 网络通信模型，即使是本机通信（localhost），也需要经过 TCP/IP 协议栈。 一次完整的 请求 → 响应 通信通常涉及：
+- client：send()
+- server：recv()
+- server：send()
+- client：recv() 也就是： 4 次 syscall + 8 次 上下文切换 + 4 次数据复制（syscall：request 2 次 + reply 2 次） 
+- ① 发送请求：client send() 应用调用：socket.getOutputStream().write(bytes) Java 层通过 JNI 调用 libc 的：send() 这是系统调用， CPU 从：用户态 → 内核态 内核随后执行 TCP/IP 协议栈处理： 随后数据被拷贝： client user memory ↓ copy_from_user client ↓ kernel socket buffer 随后 syscall 返回：内核态 → 用户态
+② 内核协议栈处理 如果是本机通信（localhost），数据不会经过网卡，而是在内核协议栈中直接转发： client kernel socket buffer ↓ TCP/IP 协议栈处理 ↓ server kernel socket buffer 这一过程完全发生在 内核态内部，不涉及用户态切换。
+③ 服务端接收数据： server recv() 服务端调用：socket.getInputStream().read() 底层调用：recv() 再次触发 syscall：CPU 从 用户态 → 内核态 内核将数据从 socket buffer 拷贝到用户态： server kernel socket buffer ↓ copy_to_user server user memory 随后 syscall 返回：内核态 → 用户态
+④ 服务端处理完成 → 返回响应 流程与 request 完全对称。 整体数据路径： client user ↓ copy_from_user client kernel socket buffer ↓ 协议栈 ↓ server kernel socket buffer ↓ copy_to_user server user
 
-
-2.TCP的复用怎么做的
-实际业务开发中，我们常说的“TCP复用”往往是指在同一个TCP长连接上，并发发送和接收多个独立的应用层请求。这样做的目的是为了避免频繁建立和断开连接（三次握手/四次挥手）带来的巨大性能开销。
-常见的实现方式包括：
-HTTP/1.1 的 Keep-Alive（串行复用）： 通过设置 Connection: keep-alive 保持TCP连接不断开。但它的请求必须是串行的，即前一个请求的响应完全返回后，才能发送下一个请求。这种方式存在**队头阻塞（Head-of-Line Blocking）**问题，一旦前面的请求卡住，后面的请求都会被阻塞。
-HTTP/2 的多路复用（并行复用）： 这是真正的多路复用。HTTP/2 将数据划分为更小的二进制帧（Frame），并引入了流（Stream）的概念。每个流都有一个唯一的Stream ID。不同请求的帧可以交错、无序地在同一个TCP连接上发送，接收端收到后，再根据报文头里的 Stream ID 将它们重新组装。这样在同一个TCP连接上可以完全并发地处理多个请求，彻底解决了应用层的队头阻塞。
-
-fragment生命周期中onCreatedView和onViewCreated的区别 如果初始化一个View在哪里(onViewCreated)
-
-
+---
+Binder：为什么切换少？（关键点：2 次 syscall + 4 次上下文切换 + 2 次数据复制） ① 发起事务：客户端用户态 → 内核态（第一次 syscall） 客户端调用：client → Proxy.transact() 调用链：Java → JNI → libbinder → Binder driver 在调用 transact() 前，客户端会把参数序列化到 Parcel 中，数据位于客户端用户态内存。 随后执行：ioctl(BINDER_WRITE_READ) 这是一次系统调用，CPU 从 用户态 → 内核态。 Binder 驱动通过 copy_from_user 把数据从 客户端用户态内存 拷贝到 Binder driver buffer（内核空间）， 然后根据 Binder 对象找到目标服务端进程，并把事务加入服务端线程的待处理队列。
+② Binder 驱动调度服务端线程 服务端进程通常有一个 Binder 线程池，这些线程平时阻塞在内核态等待新的 Binder 事务。 当 Binder driver 收到客户端事务后：
+- 将事务加入服务端队列
+- 唤醒一个 Binder 线程
+该线程从 ioctl 返回，CPU 从 内核态 → 用户态。 由于该 buffer 在服务端进程初始化 Binder 时已经通过 mmap 映射到服务端用户空间，因此服务端线程从 ioctl 返回后可以在用户态直接访问这块内存中的数据 Stub 再从 Parcel 中反序列化参数并调用真正的服务实现 Stub.onTransact()。
+③ 服务端执行完毕 → 发送 reply（第二次 syscall） 同理
+Binder 的优化点不是消灭 copy，而是消灭“多余的 kernel buffer 和协议栈”。 所以它变成： socket: user → kernel → kernel → user binder: user → kernel → user
 
