@@ -1380,22 +1380,33 @@ Client 调用：client → Proxy.transact()
 
 - **第一次 syscall**：CPU 从用户态 → 内核态
 - Binder 驱动通过 `copy_from_user` 把数据从 Client 用户态内存拷贝到 Binder driver buffer（内核空间）
-- 根据 Binder 对象找到目标服务端进程，把事务加入服务端线程的待处理队列
 
 ② Binder 驱动调度服务端线程
+服务端进程通常有一个 Binder 线程池，这些线程平时阻塞在内核态等待新的 Binder 事务。 
 
-服务端进程通常有一个 Binder 线程池，线程平时**阻塞在内核态**等待新的 Binder 事务。
+当 Binder driver 收到客户端事务后：
 
-Binder driver 收到客户端事务后：
+- 将事务加入服务端message队列 （）
+- 
+- 唤醒一个 Binder 线程
 
-1. 将事务加入服务端队列
-2. 唤醒一个 Binder 线程
+Binder 线程从 ioctl 返回，CPU 从 内核态 → 用户态。 
 
-该线程从 ioctl 返回，CPU 从内核态 → 用户态。
+由于该 Binder driver buffer 在服务端初始化时已经通过 mmap 映射到服务端用户空间，
 
-> 由于这块 buffer 在服务端进程初始化 Binder 时已经通过 `mmap` 映射到服务端用户空间，因此服务端线程从 ioctl 返回后，可以在用户态直接访问这块内存中的数据。
->
-> Stub 再从 Parcel 中反序列化参数，调用 `Stub.onTransact()`。
+因此 Binder 线程可以在用户态直接访问这块内存中的数据 
+
+Stub 再从 Parcel 中反序列化参数并调用真正的服务实现 Stub.onTransact()。
+
+如果是核心业务（如 AMS/WMS），Binder 线程会将请求包装成一个 Message 对象，通过 Handler
+
+投递到主线程的 MessageQueue 后回到内核态继续等待即可。
+
+
+
+
+
+
 
 ③ 服务端执行完毕 → 发送 Reply
 
