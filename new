@@ -1,12 +1,19 @@
-Socket：为什么切换多？（关键点：4次 syscall + 4次数据复制） Socket 属于 网络通信模型，即使是本机通信（localhost），也需要经过 TCP/IP 协议栈。 一次完整的 请求 → 响应 通信通常涉及：
+Socket：为什么切换多？（关键点：4次 syscall + 4次数据复制） 
+Socket 属于 网络通信模型，即使是本机通信（localhost），也需要经过 TCP/IP 协议栈。 一次完整的 请求 → 响应 通信通常涉及：
 - client：send()
 - server：recv()
 - server：send()
 - client：recv() 也就是： 4 次 syscall + 8 次 上下文切换 + 4 次数据复制（syscall：request 2 次 + reply 2 次） 
-- ① 发送请求：client send() 应用调用：socket.getOutputStream().write(bytes) Java 层通过 JNI 调用 libc 的：send() 这是系统调用， CPU 从：用户态 → 内核态 内核随后执行 TCP/IP 协议栈处理： 随后数据被拷贝： client user memory ↓ copy_from_user client ↓ kernel socket buffer 随后 syscall 返回：内核态 → 用户态
-② 内核协议栈处理 如果是本机通信（localhost），数据不会经过网卡，而是在内核协议栈中直接转发： client kernel socket buffer ↓ TCP/IP 协议栈处理 ↓ server kernel socket buffer 这一过程完全发生在 内核态内部，不涉及用户态切换。
-③ 服务端接收数据： server recv() 服务端调用：socket.getInputStream().read() 底层调用：recv() 再次触发 syscall：CPU 从 用户态 → 内核态 内核将数据从 socket buffer 拷贝到用户态： server kernel socket buffer ↓ copy_to_user server user memory 随后 syscall 返回：内核态 → 用户态
-④ 服务端处理完成 → 返回响应 流程与 request 完全对称。 整体数据路径： client user ↓ copy_from_user client kernel socket buffer ↓ 协议栈 ↓ server kernel socket buffer ↓ copy_to_user server user
+- ① 发送请求：client send() 应用调用：socket.getOutputStream().write(bytes) Java 层通过 JNI 调用 libc 的：send() 这是系统调用， CPU 从：用户态 → 内核态 内核随后执行 TCP/IP 协议栈处理： 随后数据被拷贝： 
+- client user memory 
+- ↓ 
+- copy_from_user client 
+- ↓ 
+- kernel socket buffer 
+- 随后 syscall 返回：内核态 → 用户态
+- ② 内核协议栈处理 如果是本机通信（localhost），数据不会经过网卡，而是在内核协议栈中直接转发： client kernel socket buffer ↓ TCP/IP 协议栈处理 ↓ server kernel socket buffer 这一过程完全发生在 内核态内部，不涉及用户态切换。
+- ③ 服务端接收数据： server recv() 服务端调用：socket.getInputStream().read() 底层调用：recv() 再次触发 syscall：CPU 从 用户态 → 内核态 内核将数据从 socket buffer 拷贝到用户态： server kernel socket buffer ↓ copy_to_user server user memory 随后 syscall 返回：内核态 → 用户态
+- ④ 服务端处理完成 → 返回响应 流程与 request 完全对称。 整体数据路径： client user ↓ copy_from_user client kernel socket buffer ↓ 协议栈 ↓ server kernel socket buffer ↓ copy_to_user server user
 
 ---
 Binder：为什么切换少？（关键点：2 次 syscall + 4 次上下文切换 + 2 次数据复制） ① 发起事务：客户端用户态 → 内核态（第一次 syscall） 客户端调用：client → Proxy.transact() 调用链：Java → JNI → libbinder → Binder driver 在调用 transact() 前，客户端会把参数序列化到 Parcel 中，数据位于客户端用户态内存。 随后执行：ioctl(BINDER_WRITE_READ) 这是一次系统调用，CPU 从 用户态 → 内核态。 Binder 驱动通过 copy_from_user 把数据从 客户端用户态内存 拷贝到 Binder driver buffer（内核空间）， 然后根据 Binder 对象找到目标服务端进程，并把事务加入服务端线程的待处理队列。
