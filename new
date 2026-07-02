@@ -1,26 +1,109 @@
-Socket：为什么切换多？（关键点：4次 syscall + 4次数据复制） 
-Socket 属于 网络通信模型，即使是本机通信（localhost），也需要经过 TCP/IP 协议栈。 一次完整的 请求 → 响应 通信通常涉及：
-- client：send()
-- server：recv()
-- server：send()
-- client：recv() 也就是： 4 次 syscall + 8 次 上下文切换 + 4 次数据复制（syscall：request 2 次 + reply 2 次） 
-- ① 发送请求：client send() 应用调用：socket.getOutputStream().write(bytes) Java 层通过 JNI 调用 libc 的：send() 这是系统调用， CPU 从：用户态 → 内核态 内核随后执行 TCP/IP 协议栈处理： 随后数据被拷贝： 
-- client user memory 
-- ↓ 
-- copy_from_user client 
-- ↓ 
-- kernel socket buffer 
-- 随后 syscall 返回：内核态 → 用户态
-- ② 内核协议栈处理 如果是本机通信（localhost），数据不会经过网卡，而是在内核协议栈中直接转发： client kernel socket buffer ↓ TCP/IP 协议栈处理 ↓ server kernel socket buffer 这一过程完全发生在 内核态内部，不涉及用户态切换。
-- ③ 服务端接收数据： server recv() 服务端调用：socket.getInputStream().read() 底层调用：recv() 再次触发 syscall：CPU 从 用户态 → 内核态 内核将数据从 socket buffer 拷贝到用户态： server kernel socket buffer ↓ copy_to_user server user memory 随后 syscall 返回：内核态 → 用户态
-- ④ 服务端处理完成 → 返回响应 流程与 request 完全对称。 整体数据路径： client user ↓ copy_from_user client kernel socket buffer ↓ 协议栈 ↓ server kernel socket buffer ↓ copy_to_user server user
+？！！！View 的绘制流程？
+1. Choreographer 接收 VSync 信号（来自 DisplayEventReceiver），调用 doFrame()，驱动 UI Thread 开始绘制。
+2. ViewRootImpl（每个 Window 一个）负责发起 View 树的绘制流程，并生成 DisplayList。
+3. 三大阶段：
+  - measure： 调用每个 View 的 onMeasure()，决定大小。
+  - layout： 调用每个 ViewGroup 的 onLayout()，决定位置。
+  - draw： 调用每个 View 的 onDraw()，生成绘制指令。
+4. RenderThread + GPU 
+RenderThread 首先向该 Window 对应的 BufferQueue 申请（dequeueBuffer）一块空闲的 Graphic Buffer（这里就是三缓冲发挥作用，提供空闲 Buffer 的地方）。
+GPU 根据 DisplayList 渲染到 Window 的 Surface buffer。
+渲染完成后，RenderThread 将这块填满画面的 Buffer 提交（queueBuffer）回 BufferQueue。
+5. SurfaceFlinger 在下一次 VSync 合成所有应用的 Surface buffer，GPU 输出最终帧到屏幕。
+
+？Surface 的三缓冲是什么？有什么作用？
+SurfaceFlinger 是 Android 系统中负责将各个图层合成并输出到显示屏。
+对于每个Window，各自管理一个 BufferQueue，需要绘制的时候从Queue 申请一个Buffer，
+surfaceflinger从里面取出当前需要渲染的buffer交给gpu渲染。
+三缓冲（Triple Buffering）是 Android 4.1（Project Butter）引入的机制，它在原有的双缓冲（Front Buffer 和 Back Buffer）基础上，增加了一个额外的 Graphic Buffer（第三个缓冲池）。
+
+它的核心作用是解决双缓冲机制下，复杂渲染场景导致的 CPU 闲置等待问题，从而减少掉帧。
+- 在双缓冲下，如果 GPU 渲染某一帧超时（错过了 VSync 信号），Back Buffer 会一直被 GPU 占用，Front Buffer 被屏幕占用。此时 CPU 即使空闲，也没有多余的 Buffer 可以用来准备下一帧的数据，只能被迫休眠等待。
+- 引入三缓冲后，当 CPU 发现前两个 Buffer 都被占用时，它可以立刻获取第三个 Buffer 开始计算下一帧。这就打破了 CPU 和 GPU 之间的互相等待，保证了渲染流水线永远不停工，显著提升了画面的流畅度。
 
 ---
-Binder：为什么切换少？（关键点：2 次 syscall + 4 次上下文切换 + 2 次数据复制） ① 发起事务：客户端用户态 → 内核态（第一次 syscall） 客户端调用：client → Proxy.transact() 调用链：Java → JNI → libbinder → Binder driver 在调用 transact() 前，客户端会把参数序列化到 Parcel 中，数据位于客户端用户态内存。 随后执行：ioctl(BINDER_WRITE_READ) 这是一次系统调用，CPU 从 用户态 → 内核态。 Binder 驱动通过 copy_from_user 把数据从 客户端用户态内存 拷贝到 Binder driver buffer（内核空间）， 然后根据 Binder 对象找到目标服务端进程，并把事务加入服务端线程的待处理队列。
-② Binder 驱动调度服务端线程 服务端进程通常有一个 Binder 线程池，这些线程平时阻塞在内核态等待新的 Binder 事务。 当 Binder driver 收到客户端事务后：
-- 将事务加入服务端队列
-- 唤醒一个 Binder 线程
-该线程从 ioctl 返回，CPU 从 内核态 → 用户态。 由于该 buffer 在服务端进程初始化 Binder 时已经通过 mmap 映射到服务端用户空间，因此服务端线程从 ioctl 返回后可以在用户态直接访问这块内存中的数据 Stub 再从 Parcel 中反序列化参数并调用真正的服务实现 Stub.onTransact()。
-③ 服务端执行完毕 → 发送 reply（第二次 syscall） 同理
-Binder 的优化点不是消灭 copy，而是消灭“多余的 kernel buffer 和协议栈”。 所以它变成： socket: user → kernel → kernel → user binder: user → kernel → user
+？既然三缓冲能提升流畅度，那为什么不把缓冲扩到 4 个、5 个甚至更多？
+1. 致命的输入延迟（操作“不跟手”）：
+增加 Buffer 意味着拉长了渲染流水线。如果采用 4 缓冲或 5 缓冲，用户的触摸事件（如滑动屏幕）被 CPU 处理后，生成的画面必须排队等待前面所有的 Buffer 轮转完毕才能显示到屏幕上。这会导致极差的交互延迟体验，用户会明显感觉屏幕反应慢半拍。
+2. 巨大的内存消耗：
+每一个图形 Buffer 都会占用实打实的物理内存。以高分辨率屏幕为例，一张全屏画面可能需要几 MB 甚至十几 MB 的内存。如果全局 UI 系统都采用 4 缓冲或更多，会导致系统内存占用暴涨，进而引发频繁的 GC，甚至导致后台应用被大量清理。
+3. 边际效益递减（无法解决根本的算力瓶颈）：
+三缓冲已经足以解决绝大多数的 CPU 和 GPU 互相等待问题。如果系统卡到了连 3 个 Buffer 都全部占满的地步，说明遇到了绝对的性能瓶颈（算力严重不足）。应该考虑别的角度优化业务了
+
+---
+
+？！！！如何排查和解决 UI 卡顿问题？
+Android 的 UI 渲染依赖于一条基于 VSYNC 信号的流水线：
+1. 信号源头： 底层屏幕硬件按固定频率发出 VSYNC 信号，比如 60HZ 约为 16.6ms
+2. 信号分发： SurfaceFlinger 接收信号并分发给前台 APP
+3. 接收绘制： APP 主线程的 Choreographer 接收到信号后，触发 doFrame 开始绘制这一帧，由RenderThread驱动合成
+
+应用层（App侧）：数据准备与指令生成超时
+这是日常开发中最常见的卡顿原因。
+- 主线程阻塞：主线程执行 doFrame 耗时过长，例如 UI 嵌套过深导致 Measure/Layout 缓慢，或者在主线程进行了 IO、锁等待、引发频繁 GC。
+- RenderThread 阻塞：主线程虽按时交出指令，但 RenderThread 在同步数据或上传超大 Bitmap 纹理时耗时过长。
+系统合成层（SurfaceFlinger侧）：图层合成失败
+App 侧按时输出了画面数据，但在系统级的图层管理和合成阶段出现瓶颈。
+- HWC 退化：屏幕上的图层数量过多或有特殊混合模式，导致硬件合成器（HWC）处理失败，退化为耗时的 GPU 合成（Client Composition）。
+- SF 调度异常：系统整体负载极高，导致 SurfaceFlinger 自身线程被抢占，错过了 VSYNC-SF 信号，无法按时将画面送显。
+硬件渲染层（GPU侧）：图形计算超载
+指令和合成调度都正常，但底层 GPU 算力跟不上。
+- 过度绘制（Overdraw）：同一像素点在单帧内被反复绘制，浪费算力。
+- 复杂特效：大量使用复杂 Shader、圆角裁剪或模糊效果，超出 GPU 处理能力。
+- 硬件降频：设备发热触发温控，导致 GPU 降频，渲染能力大打折扣。
+
+---
+
+？MVC、MVP 和 MVVM 有什么本质区别？为什么现在 Google 官方推荐使用 MVVM？
+---
+！！！为什么 MMKV 比 SharedPreferences 快？
+MMKV 对 SharedPreferences 的性能碾压，主要体现在底层读写机制和数据写入策略两个核心维度的差异：
+1. 底层机制：mmap 内存映射 vs 传统 I/O
+- SharedPreferences：使用传统的 I/O 操作。每次写盘都需要经历数据从用户空间拷贝到内核空间，再写入物理磁盘的过程，系统开销较大。
+- MMKV：核心黑科技是使用了 mmap（内存映射） 技术。它将磁盘上的物理文件直接映射到 APP 的内存地址空间。APP 对这块内存的任何修改，就等同于直接修改了文件，彻底省去了数据在用户态和内核态之间的拷贝过程。
+- 写盘时机：MMKV 写入内存后，真正落盘的动作交由操作系统内核在后台自动调度（如 pdflush 线程）。这种机制极其高效，且即使 APP 发生 Crash，只要手机没断电，系统内核依然会保证将内存中的“脏页”安全刷入磁盘，不会丢失数据。
+
+2. 写入策略：增量追加 vs 全量覆盖
+- SharedPreferences：基于 XML 格式。哪怕你仅仅修改了一个简单的布尔值，SP 也会在内存中重新构建整个 XML 结构，然后对磁盘文件进行全量覆盖写入。文件体积越大，修改耗时越长。
+- MMKV：采用类似 Protobuf 的紧凑二进制编码。当有新数据或修改数据时，MMKV 不需要重写整个文件，而是直接在文件末尾进行增量追加（Append）。只有当分配的内存/文件空间快满时，才会触发一次重写来剔除冗余的旧数据。这种追加模式极大地降低了 I/O 耗时。
+
+SP 写盘不仅需要切态（用户态切内核态），还需要额外的数据拷贝；而 MMKV 利用 mmap 实现了直接在用户态写内存，省去了昂贵的上下文切换和拷贝开销，这也是它性能极高的核心底层原因之一！
+
+---
+！！！Kotlin 协程和 Java 的虚拟线程对比？
+协程和虚拟线程都是挂载在真实线程上执行任务的。本质上都是把海量的轻量级任务，交给少量的真实操作线程来执行实现并发。并且在遇到耗时操作的时候，要把真实操作线程让出来给别人用。
+在让出线程的底层机制上：
+1. Kotlin 协程靠编译器把代码编译成一个状态机，挂起时保存当前状态，恢复时再找个线程继续执行任务。
+2. Java 的虚拟线程靠 JVM，阻塞时 JVM 把它的栈帧从虚拟机栈复制到堆内存里暂存，阻塞结束后再把栈数据拷贝回去继续执行。
+
+---
+
+PTE
+
+---
+
+代码混淆的作用和步骤是？
+最核心的作用有两个：
+1. 通过把代码变成 a.b.c 这种样式，反编译，提升代码安全。
+2. 缩短了代码量，大幅减少 APK 的包体积。
+从开发步骤的角度看：
+1. 在 build.gradle 中开启反编译开关。 混淆本身会拉低编译速度，在项目中通常只有在正式包才开启混淆，开发调试不会打开。
+2. 在 proguard-rules.pro 中写好规则。 需要写好 keep 保留规则，有些内容混淆之后可能会导致崩溃。
+核心一点是混淆了之后可能找不到数据，一般的场景有：
+1. 网络请求的实体类，混淆了可能找不到返回数据。
+2. JNI 调用的 native 方法需要保留，防止在 C/C++ 层会找不到方法。
+3. 用到反射的地方，反射需要字符串全类名，混淆了就找不到对象。
+4. 第三方 SDK 的调用，别人的内部代码不能混淆。
+
+---
+
+
+
+
+
+
+
+
+
+
 
