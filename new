@@ -1,90 +1,68 @@
-这道题更新原有的：？！！！View 的绘制流程？
-1. Choreographer 接收 VSync 信号（来自 DisplayEventReceiver），调用 doFrame()，驱动 UI Thread 开始绘制。
-2. ViewRootImpl（每个 Window 一个）负责发起 View 树的绘制流程，并生成 DisplayList。
-3. 三大阶段：
-  - measure： 调用每个 View 的 onMeasure()，决定大小。
-  - layout： 调用每个 ViewGroup 的 onLayout()，决定位置。
-  - draw： 调用每个 View 的 onDraw()，生成绘制指令。
-4. RenderThread + GPU 
-RenderThread 首先向该 Window 对应的 BufferQueue 申请（dequeueBuffer）一块空闲的 Graphic Buffer（这里就是三缓冲发挥作用，提供空闲 Buffer 的地方）。
-GPU 根据 DisplayList 渲染到 Window 的 Surface buffer。
-渲染完成后，RenderThread 将这块填满画面的 Buffer 提交（queueBuffer）回 BufferQueue。
-5. SurfaceFlinger 在下一次 VSync 合成所有应用的 Surface buffer，GPU 输出最终帧到屏幕。
+问题一：如何处理高频推送的数据流？（涉及 WebSocket、Protobuf、OkHttp）
+核心思路：全双工通信 + 高效序列化 + 数据流控
+为什么选择 WebSocket 而不是轮询？
+股票行情要求毫秒级延迟。传统的 HTTP 轮询会产生大量的 Header 开销，且无法做到真正的实时。
+WebSocket 提供了基于 TCP 的全双工长连接，服务器可以主动向客户端推送数据，极大降低了网络开销和延迟。在 Android 中，通常直接使用 OkHttp 提供的 WebSocket 支持来实现。
+为什么使用 Protobuf 而不是 JSON？
+体积小、解析快：Protobuf 是基于二进制流的序列化协议。相比 JSON，它的体积通常只有 1/3 到 1/10，解析速度快几十倍。
+节省带宽与电量：在每秒几十次的高频推送下，使用 Protobuf 能显著降低用户的流量消耗，同时减少 CPU 解析数据的耗时，从而降低手机发热和耗电。
+OkHttp 拦截器的应用
+面试官可能会问网络层的统一处理。你可以回答：通过自定义 OkHttp Interceptor（拦截器），可以在底层统一处理请求头（如鉴权 Token）、统一打印网络日志、或者进行全局的错误码拦截与重试逻辑。
 
-这道题添加进去：？Surface 的三缓冲是什么？有什么作用？
-SurfaceFlinger 是 Android 系统中负责将各个图层合成并输出到显示屏。
-对于每个Window，各自管理一个 BufferQueue，需要绘制的时候从Queue 申请一个Buffer，
-surfaceflinger从里面取出当前需要渲染的buffer交给gpu渲染。
-三缓冲（Triple Buffering）是 Android 4.1（Project Butter）引入的机制，它在原有的双缓冲（Front Buffer 和 Back Buffer）基础上，增加了一个额外的 Graphic Buffer（第三个缓冲池）。
+问题二：如何保证长连接的稳定性，以及弱网环境下的重连策略？（涉及心跳保活、弱网重连）
+核心思路：及时感知断连 + 智能退避重连 + 节省系统资源
+心跳保活机制（Heartbeat）
+为什么需要心跳？ 主要是为了应对运营商的 NAT 穿透超时（长时间无数据传输，运营商路由器会强制断开连接）以及半连接状态（如拔掉网线，系统未及时发出 FIN 包，导致假在线）。
+实现方案：客户端定时（例如每 30 秒）向服务器发送一个极小的 Ping 包，服务器回复 Pong 包。如果连续 N 次未收到响应，则认为连接已断开，主动触发重连。
+弱网环境下的重连策略（核心考点）
+指数退避算法（Exponential Backoff）：断网后绝对不能无限高频重连，这会导致手机耗电剧增，且在服务器故障时引发“雪崩效应”。正确的做法是：重连间隔时间逐渐增加（如 2s, 4s, 8s, 16s...），达到最大阈值后停止或保持低频重连。
+网络状态监听：注册系统网络状态变化广播（或使用 ConnectivityManager.NetworkCallback）。当监听到网络从无到有（如走出电梯恢复 4G/WiFi）时，立即打断退避休眠，立刻发起一次重连。
+前后台生命周期管理
+节省资源：当 App 退到后台时，用户不需要看实时行情。此时应该降低心跳频率，或者在后台超过一定时间后主动断开 WebSocket 连接。
+当 App 重新回到前台（onResume）时，立即检查连接状态，若已断开则迅速重连并拉取最新快照数据，保证用户体验。
 
-它的核心作用是解决双缓冲机制下，复杂渲染场景导致的 CPU 闲置等待问题，从而减少掉帧。
-- 在双缓冲下，如果 GPU 渲染某一帧超时（错过了 VSync 信号），Back Buffer 会一直被 GPU 占用，Front Buffer 被屏幕占用。此时 CPU 即使空闲，也没有多余的 Buffer 可以用来准备下一帧的数据，只能被迫休眠等待。
-- 引入三缓冲后，当 CPU 发现前两个 Buffer 都被占用时，它可以立刻获取第三个 Buffer 开始计算下一帧。这就打破了 CPU 和 GPU 之间的互相等待，保证了渲染流水线永远不停工，显著提升了画面的流畅度。
+问题三：如何高效绘制复杂的证券图表（K线图、分时图）并处理复杂交互？（涉及 Canvas 绘制、事件分发、SurfaceView）
+核心思路：独立线程渲染 + 局部绘制优化 + 剥夺父控件拦截权
+为什么使用 SurfaceView 而不是普通 View？
+普通 View 的 onDraw 运行在主线程。在 120Hz 高刷屏下（每帧仅约 
+8.33
+m
+s
+8.33ms），绘制海量 K 线数据极易阻塞主线程导致掉帧（Jank）。SurfaceView 拥有独立的双缓冲渲染机制，可以在子线程中通过 lockCanvas() 进行高频绘制，完成后提交，彻底解放主线程，保证 UI 的丝滑。
+如何处理图表缩放与十字光标的滑动冲突？
+K线图通常嵌套在 ScrollView 或 ViewPager 中。当用户单指长按（唤出十字光标）或双指缩放（结合 ScaleGestureDetector）时，必须在自定义 View 的 onTouchEvent 中调用 parent.requestDisallowInterceptTouchEvent(true)，强制剥夺父控件的事件拦截权，确保图表内部的滑动和缩放体验不受外层控件干扰。
+海量图表元素的绘制优化策略
+避免对象分配：绝对不要在 onDraw 中频繁创建对象（如 new Paint() 或 new Path()），防止频繁触发 GC 造成卡顿。
+可见区域绘制：计算当前屏幕可见的 K 线数据索引（startIndex 到 endIndex），只绘制屏幕内的数据。使用 Path 批量绘制折线（如均线），而不是循环调用 drawLine。
 
----
-这道题添加进去：？既然三缓冲能提升流畅度，那为什么不把缓冲扩到 4 个、5 个甚至更多？
-1. 致命的输入延迟（操作“不跟手”）：
-增加 Buffer 意味着拉长了渲染流水线。如果采用 4 缓冲或 5 缓冲，用户的触摸事件（如滑动屏幕）被 CPU 处理后，生成的画面必须排队等待前面所有的 Buffer 轮转完毕才能显示到屏幕上。这会导致极差的交互延迟体验，用户会明显感觉屏幕反应慢半拍。
-2. 巨大的内存消耗：
-每一个图形 Buffer 都会占用实打实的物理内存。以高分辨率屏幕为例，一张全屏画面可能需要几 MB 甚至十几 MB 的内存。如果全局 UI 系统都采用 4 缓冲或更多，会导致系统内存占用暴涨，进而引发频繁的 GC，甚至导致后台应用被大量清理。
-3. 边际效益递减（无法解决根本的算力瓶颈）：
-三缓冲已经足以解决绝大多数的 CPU 和 GPU 互相等待问题。如果系统卡到了连 3 个 Buffer 都全部占满的地步，说明遇到了绝对的性能瓶颈（算力严重不足）。应该考虑别的角度优化业务了
+问题四：如何优雅地处理后台海量推送数据并刷新 UI？（涉及 协程、Flow/RxJava、线程同步）
+核心思路：子线程解析 + 数据流控（背压） + 线程安全
+如何平衡高频数据推送与 UI 渲染（背压处理）？
+后台可能每秒推送 50 次行情数据，但屏幕刷新率有限，全量刷新会导致 UI 卡死。在使用 Kotlin Flow（或 RxJava）时，必须进行数据流控。可以通过 conflate() 操作符（只保留最新数据，丢弃中间积压数据）或 sample() / debounce() 进行限流降频，将刷新频率控制在人眼舒适的范围（如 3Hz 到 5Hz）。
+协程在网络与数据解析中的应用
+WebSocket 接收到二进制流后，必须在 Dispatchers.IO 线程池中进行 Protobuf 的反序列化和数据组装。处理完毕后，通过 withContext(Dispatchers.Main) 或 StateFlow 将最终的 UI 状态安全地抛回主线程进行渲染。
+多线程环境下的数据同步与锁机制
+当多个子线程同时更新全市场几千只股票的缓存字典时，如果直接使用普通 HashMap 会触发 ConcurrentModificationException。必须使用 ConcurrentHashMap，或者在协程环境下使用 Mutex（互斥锁） 来保证共享状态的一致性和线程安全。
 
----
+问题五：如何解决行情列表的滑动卡顿与长时间盯盘导致的 OOM？（涉及 RecyclerView 优化、内存泄漏排查）
+核心思路：极致局部刷新 + 严控对象生命周期
+RecyclerView 的极致优化（Payload 机制）
+当某只股票价格跳动时，绝对禁止调用 notifyDataSetChanged() 或无参数的 notifyItemChanged(position)，这会导致整个 Item 重绘并闪烁。必须重写带有 payload 参数的 onBindViewHolder，结合 DiffUtil，将变化的价格字段作为 payload 传入，精准地只更新那一个 TextView。同时固定价格控件的宽高，避免文字跳动触发耗时的 requestLayout。
+长时间挂机盯盘的内存泄漏（OOM）治理
+金融 App 极易因为 WebSocket 回调、单例模式或匿名内部类非法持有 Activity 的 Context 而导致内存泄漏。解决方案是：在生命周期 onDestroy 中严格注销所有网络监听。日常开发接入 LeakCanary，线上发生 OOM 时，抓取 hprof 文件并使用 MAT 工具 分析 GC Root 引用链，精准定位泄漏源。
 
-这道题更新原有的：？！！！如何排查和解决 UI 卡顿问题？
-Android 的 UI 渲染依赖于一条基于 VSYNC 信号的流水线：
-1. 信号源头： 底层屏幕硬件按固定频率发出 VSYNC 信号，比如 60HZ 约为 16.6ms
-2. 信号分发： SurfaceFlinger 接收信号并分发给前台 APP
-3. 接收绘制： APP 主线程的 Choreographer 接收到信号后，触发 doFrame 开始绘制这一帧，由RenderThread驱动合成
+问题六：如何设计架构以应对繁杂的金融业务并保证状态一致性？（涉及 MVI/MVVM、组件化）
+核心思路：单向数据流 + 物理隔离解耦
+为什么在金融 App 中推荐 MVI 架构？
+金融交易对状态的准确性要求极高（如未登录、请求中、持仓为空）。MVVM 中多个 LiveData 容易导致状态割裂和时序错乱。MVI 架构强调单向数据流（UDF）和唯一可信数据源。ViewModel 产出唯一的 UiState，UI 层只负责根据这个 State 渲染画面，用户的任何交互都封装成 Intent 发送给 ViewModel，彻底杜绝状态错乱。
+组件化/模块化开发思想
+将 App 拆分为“行情”、“交易”、“资讯”、“开户”等独立 Module。底层抽取网络、数据库等 Base 库。模块之间绝对禁止直接依赖，页面跳转使用 ARouter，服务调用通过接口下沉（在 Common 层定义接口，业务层实现），从而提升编译速度，方便多团队并行开发。
 
-应用层（App侧）：数据准备与指令生成超时
-这是日常开发中最常见的卡顿原因。
-- 主线程阻塞：主线程执行 doFrame 耗时过长，例如 UI 嵌套过深导致 Measure/Layout 缓慢，或者在主线程进行了 IO、锁等待、引发频繁 GC。
-- RenderThread 阻塞：主线程虽按时交出指令，但 RenderThread 在同步数据或上传超大 Bitmap 纹理时耗时过长。
-系统合成层（SurfaceFlinger侧）：图层合成失败
-App 侧按时输出了画面数据，但在系统级的图层管理和合成阶段出现瓶颈。
-- HWC 退化：屏幕上的图层数量过多或有特殊混合模式，导致硬件合成器（HWC）处理失败，退化为耗时的 GPU 合成（Client Composition）。
-- SF 调度异常：系统整体负载极高，导致 SurfaceFlinger 自身线程被抢占，错过了 VSYNC-SF 信号，无法按时将画面送显。
-硬件渲染层（GPU侧）：图形计算超载
-指令和合成调度都正常，但底层 GPU 算力跟不上。
-- 过度绘制（Overdraw）：同一像素点在单帧内被反复绘制，浪费算力。
-- 复杂特效：大量使用复杂 Shader、圆角裁剪或模糊效果，超出 GPU 处理能力。
-- 硬件降频：设备发热触发温控，导致 GPU 降频，渲染能力大打折扣。
-
----
-
-这道题更新原有的：！！！为什么 MMKV 比 SharedPreferences 快？
-MMKV 对 SharedPreferences 的性能碾压，主要体现在底层读写机制和数据写入策略两个核心维度的差异：
-1. 底层机制：mmap 内存映射 vs 传统 I/O
-- SharedPreferences：使用传统的 I/O 操作。每次写盘都需要经历数据从用户空间拷贝到内核空间，再写入物理磁盘的过程，系统开销较大。
-- MMKV：核心黑科技是使用了 mmap（内存映射） 技术。它将磁盘上的物理文件直接映射到 APP 的内存地址空间。APP 对这块内存的任何修改，就等同于直接修改了文件，彻底省去了数据在用户态和内核态之间的拷贝过程。
-- 写盘时机：MMKV 写入内存后，真正落盘的动作交由操作系统内核在后台自动调度（如 pdflush 线程）。这种机制极其高效，且即使 APP 发生 Crash，只要手机没断电，系统内核依然会保证将内存中的“脏页”安全刷入磁盘，不会丢失数据。
-
-2. 写入策略：增量追加 vs 全量覆盖
-- SharedPreferences：基于 XML 格式。哪怕你仅仅修改了一个简单的布尔值，SP 也会在内存中重新构建整个 XML 结构，然后对磁盘文件进行全量覆盖写入。文件体积越大，修改耗时越长。
-- MMKV：采用类似 Protobuf 的紧凑二进制编码。当有新数据或修改数据时，MMKV 不需要重写整个文件，而是直接在文件末尾进行增量追加（Append）。只有当分配的内存/文件空间快满时，才会触发一次重写来剔除冗余的旧数据。这种追加模式极大地降低了 I/O 耗时。
-
-SP 写盘不仅需要切态（用户态切内核态），还需要额外的数据拷贝；而 MMKV 利用 mmap 实现了直接在用户态写内存，省去了昂贵的上下文切换和拷贝开销，这也是它性能极高的核心底层原因之一！
-
----
-！！！Kotlin 协程和 Java 的虚拟线程对比？
-更新这句话
-2. Java 的虚拟线程靠 JVM，阻塞时 JVM 把它的栈帧从虚拟机栈复制到堆内存里暂存，阻塞结束后再把栈数据拷贝回去继续执行。
-
----
-
-修改标题：代码混淆的作用是？ 修改为：代码混淆的作用和步骤是？
-
----
-
-
-
-
-
-
-
-
-
-
-
+问题七：如何保障用户的资金安全与交易数据防篡改？（涉及 加密算法、防抓包、本地安全存储）
+核心思路：混合加密 + 证书锁定 + 硬件级存储
+网络传输的混合加密机制
+交易报文绝不能裸奔。通常采用 “RSA + AES” 混合加密方案：利用非对称加密 RSA 安全地交换 AES 的对称密钥，然后用 AES 加密实际的业务数据。这样既保证了密钥分发的安全性，又兼顾了海量数据加解密的性能。
+防抓包与防中间人攻击（Certificate Pinning）
+为了防止黑客使用 Charles 等工具进行中间人伪造攻击，必须在 OkHttp 中配置 CertificatePinner（证书锁定）。将服务器证书的公钥 Hash 值硬编码在 App 中，建立连接时强制校验。一旦发现证书 Hash 不匹配，直接断开连接，彻底阻断抓包。
+本地敏感数据的安全存储
+用户的 Token、交易密码绝对不能明文保存在 SharedPreferences 中。必须使用 Android 官方的 EncryptedSharedPreferences，其底层依赖 Android Keystore 系统，密钥存储在硬件安全模块（TEE）中。核心加密逻辑应使用 NDK 编写 C/C++ 代码 并加固，防止被 JADX 轻易反编译。
