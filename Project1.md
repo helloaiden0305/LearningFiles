@@ -1,0 +1,1324 @@
+# Project1
+
+## 功能
+
+1. 进行课程咨询
+2. Rag检索增强
+3. 向量数据库
+4. 知识库
+5. 多模态
+  1. 文字
+  2. 语音
+  3. 图片
+  4. 视频
+6. 音色模拟（回复  是我音色）
+
+## 为什么要做这个项目？
+
+1. 这是我们公司的真实场景，我懂王Ai要用起来
+2. 很多公司需要这样的产品，通用性很强
+3. 技术新颖，实时语音对话
+4. 技术架构牛逼、亮点拉满
+
+## 初步目标
+
+1. 本科3年要25
+2. 本科应届要20
+3. 专科应届要15k
+
+## 项目架构
+
+[图片]
+
+## 什么是Ai应用？
+
+Ai应用 = 前端 + 后台 +Ai SDK
+
+## Ai应用的运行流程
+
+1. 前端发起请求
+2. 后台处理请求
+3. 调用Ai Agent启动开始工作
+
+[图片]
+
+[图片]
+1. AI的服务除了http（80%）  python fastapi，  还可以是RPC 微服务
+
+## 我们的项目设计
+
+3个代码仓库
+1. 前端
+2. 后台（业务逻辑）
+3. Ai后台（重点）
+
+## 代码仓库
+
+地址：https://gitee.com/leejersey/ark_aigc_demo/
+项目一跑不通的先看高频问题：
+
+### 高频问题收集
+
+### 环境切换
+
+每开一个项目，conda都要创建一个新的环境
+
+```
+conda create -n ai_agent python=3.13
+conda activate ai_agent
+```
+
+遇到环境不对试试：
+
+```
+conda init powershell
+conda activate ai_agent
+```
+
+安装依赖
+
+```
+pip install -r requirements.txt
+```
+
+### 前端项目
+
+1. 装nvm  进行版本管理
+2. 装node v24版本
+安装依赖
+
+```
+npm i
+npm run dev
+```
+
+如果版本冲突
+
+```
+npm install --legacy-peer-deps
+```
+
+### 项目依赖资料
+
+```
+https://www.volcengine.com/docs/82379/1393085?lang=zh
+https://github.com/volcengine/rtc-aigc-demo/blob/main/Server/util.js
+```
+
+## Ai写代码的两种思路
+
+1. 编辑器直接生成
+  1. trae完全不行
+  2. cursor可能要充钱
+2. 用Gemini3 Pro  （开学生特惠 几十一年  正常是20刀/月  闲鱼） 可以问 @杰斯_老师
+[图片]
+
+## API KEY开通
+
+```
+https://console.volcengine.com/iam/keymanage
+  "AccountConfig": {
+    "accessKeyId": "xxxxxxx",
+    "secretKey": "xxxxxx"
+```
+
+  },
+
+```
+https://console.volcengine.com/rtc/aigc/run
+```
+
+先开：实时音视频
+再开：Ai音视频互动方案
+[图片]
+[图片]
+注意： 启动python服务的时候，房间要挂断。以下图的状态是你已经开启了一个服务，再跑python会冲突，要挂断再跑python服务
+注意： 启动python服务的时候，房间要挂断。以下图的状态是你已经开启了一个服务，再跑python会冲突，要挂断再跑python服务
+注意： 启动python服务的时候，房间要挂断。以下图的状态是你已经开启了一个服务，再跑python会冲突，要挂断再跑python服务
+
+[图片]
+创建自定义推理接入点
+
+```
+https://console.volcengine.com/ark/region:ark+cn-beijing/endpoint?config=%7B%7D
+```
+
+开通ASR服务（直接全选）
+
+```
+https://console.volcengine.com/speech/app?projectName=default
+```
+
+[图片]
+获取asr app id
+
+```
+https://console.volcengine.com/speech/service/16?AppID=7077298582&projectName=default
+```
+
+[图片]
+获取tts appid
+
+```
+https://console.volcengine.com/speech/service/8?AppID=7077298582&projectName=default
+```
+
+[图片]
+
+点击接入代码示例
+对号入座复制进去
+[图片]
+
+[图片]
+
+## 接口地址
+
+在线创建实时Ai对话 RTC房间
+
+```
+https://console.volcengine.com/rtc/aigc/run?projectName=default
+```
+
+[图片]
+openai协议
+
+```
+https://www.volcengine.com/docs/6348/69827?lang=zh
+```
+
+Action文档
+
+```
+https://www.volcengine.com/docs/6348/1558163?lang=zh
+```
+
+实时对话Api
+
+```
+https://www.volcengine.com/docs/6348/1899868?lang=zh
+@volcengine/rtc （前端）
+https://www.volcengine.com/docs/6348/104477?lang=zh
+```
+
+## 为什么方案要用RTC？
+
+1. 极低延迟 (Ultra Low Latency) —— 最核心原因
+- RTC (UDP): WebRTC 底层主要基于 UDP。在语音通话中，实时性 > 完整性。如果网络抖动丢失了几个数据包，UDP 会直接丢弃（用户只听到极其短暂的杂音），而不会像 TCP 那样重传导致后续声音全部卡顿（Head-of-Line Blocking）。
+- Socket/HTTP (TCP): 都是基于 TCP 的。TCP 必须保证数据包按顺序到达，一旦某个包丢了，后续所有包都要等待重传。
+  - 后果: 在 AI 对话中，如果用户说了一句“停”，Socket 方案可能因为重传导致延迟 1-2 秒，AI 还在继续喋喋不休，这会完全破坏“打断”体验。
+  - 代码体现: 你的 src/lib/RtcClient.ts 中有打断逻辑 (INTERRUPT_PRIORITY)，这种毫秒级的打断体验只有 RTC 能做到。
+2. 内置音频处理 (3A 算法)
+浏览器和 RTC SDK 内置了极其强大的音频引擎，解决了以下痛点，而 Socket 方案需要你自己手写复杂的算法：
+- AEC (回声消除): 当 AI 说话时，声音会从你的扬声器出来，又被麦克风录进去。RTC 会自动把这部分声音消除，否则 AI 会听到自己的声音产生无限回音。
+- ANS (降噪): 去除环境噪音。你的代码中 explicitly 注册了降噪插件：new RTCAIAnsExtension()。
+- AGC (自动增益): 自动调节麦克风音量，防止声音忽大忽小。
+- Socket 方案的劣势: WebSocket 只负责传二进制数据流 (Blob/ArrayBuffer)，它不管音频质量。如果你用 Socket，你必须自己在前端实现回声消除（非常难），否则用户体验就是灾难级的。
+3. 架构解耦：服务端 vs 传输通道
+- 你的当前架构 (RTC):
+  - 信令/控制: HTTP (/proxy, /getScenes)。用于告诉云端“把 AI 拉进房间”。
+  - 数据/媒体: RTC。音频流直接从你的浏览器传输到火山引擎的 RTC 服务器，再转给 AI 模型。
+  - 优势: 你的 Node/Python 后端不需要处理繁重的音频流转发，只负责简单的鉴权和发指令，负载极低。
+- Socket 方案:
+  - 如果是 Socket，音频流通常需要：浏览器 -> 你的后端 -> AI 服务。
+  - 这会导致你的 Node/Python 服务变成流量瓶颈，不仅增加了中转延迟，还消耗巨大的服务器带宽和 CPU。
+4. 前端指令通道 (Data Channel)
+- RTC: WebRTC 不仅传音视频，还有 DataChannel。
+- 代码体现: 在 src/lib/RtcClient.ts 中，commandAgent 函数使用了 sendUserBinaryMessage。这走的是 RTC 的 UDP 通道，比 WebSocket 更快，专门用于发送“打断”、“静音”等高优先级指令。
+[图片]
+
+## 火山引擎的RTC服务SDK特点
+
+其实就是服务器转发，只是底层协议是UDP
+在你的项目中，使用火山引擎 RTC 实际上是采用了 SFU (Selective Forwarding Unit) 架构。这也是目前 100 人甚至千人会议的主流方案。
+- 逻辑上的“点对点”：在你的业务逻辑层（如 handler.ts），你依然可以指定发给某个 userId 的消息，感觉上像点对点。
+- 物理上的“星型结构”：
+  - 你只需要发送 1 路 自己的流到火山引擎的边缘服务器。
+  - 火山服务器根据房间内其他人的订阅请求，将你的流转发给另外 99 个人。
+  - 优点：你本地的上行压力始终是 1 路流，极大地节省了带宽。
+
+[图片]
+
+## Rtc语音会话核心步骤
+
+第一步： 
+1. 创建Rtc房间
+2. 我加入
+3. Ai加入
+
+```
+dispatchJoin();
+```
+
+第二步：
+1. 我开始说话了，麦克风采集声音是在哪？
+2. 我说完后话，发给Ai的声音在哪？
+3. 我说完话我的字幕展示在屏幕上，这个文字消息从哪来？
+4. Ai的回复文字从来哪里来？
+5. Ai回复的语音从哪里来？
+
+1. 我开始说话了，麦克风采集声音是在哪？
+麦克风的物理采集是由 RTC SDK 引擎层 处理的。
+- 代码位置：src/lib/RtcClient.ts
+- 具体函数：startAudioCapture
+- 过程：程序调用 this.engine.startAudioCapture(micId)，此时浏览器会向操作系统请求麦克风权限，并开始将模拟信号转为数字音频流。
+2. 我说完话，发给 AI 的声音在哪？
+声音并不是以“文件”形式发送的，而是以**实时流（Stream）**的形式持续推送。
+- 代码位置：src/lib/RtcClient.ts
+- 具体函数：publishStream(MediaType.AUDIO)  （视频我讲错了，不是自动调用)
+在麦克风检测的时候被调用的：
+
+```
+RtcClient.publishStream(MediaType.AUDI0)
+```
+
+- 过程：一旦采集开启，RTC 引擎会自动将你的音频数据封装成网络包，发送到 RTC 服务器频道。云端的 AI Agent 就在这个频道里，它像一个“隐形监听者”一样实时拉取并处理你的声音流。
+3. 我说完话我的字幕展示在屏幕上，这个文字消息从哪来？
+虽然是你自己说的话，但字幕数据是云端 Agent 识别后回传给你的（而不是前端本地识别的）。
+- 数据源头：云端 ASR（语音识别）
+- 接收位置：src/lib/listenerHooks.ts 中的 handleRoomBinaryMessageReceived
+- 解析逻辑：src/utils/handler.ts 中的 [MESSAGE_TYPE.SUBTITLE]
+- 过程：云端 Agent 把识别好的文字通过二进制消息（Binary Message）发回给前端。handler.ts 收到消息后，判断 userId 是你本人，然后将其存入 Redux 的 msgHistory 中。
+4. AI 的回复文字从哪里来？
+AI 回复的文字源头是大模型（LLM）生成的文本。
+- 数据源头：云端 LLM
+- 接收通路：与你的字幕完全一致，走的是 RTC 的 信道消息。
+- 代码逻辑：在 src/utils/handler.ts 中解析 MESSAGE_TYPE.SUBTITLE 类型的消息。
+- 区分方式：解析出的数据中包含 userId。如果 userId 对应的是机器人（botName），它就被识别为 AI 的回复并显示在界面左侧。
+5. AI 回复的语音从哪里来？
+AI 的声音是实时拉取的远端音频流。
+- 数据源头：云端 TTS（语音合成）
+- 触发位置：src/lib/listenerHooks.ts 中的 handleUserPublishStream
+- 过程：
+  1. AI Agent 在云端把文本转成语音流。
+  2. Agent 像真实用户一样在房间内“发布音频流”。
+  3. 你的浏览器监听到 onUserPublishStream 事件。
+  4. 由于 joinRoom 时设置了 isAutoSubscribeAudio: true，浏览器会自动拉取这段音频并从你的扬声器播放。
+总结梳理：
+- 声音流（推/拉）：由 RtcClient.ts 负责实时传输。
+- 文字流（指令解析）：由 handler.ts 负责接收云端 Agent 传回的二进制消息。
+- 界面展示：Conversation.tsx 订阅 Redux 里的消息数组并输出到屏幕。
+
+## parse回复的消息
+
+1. subv (Subtitle - 字幕消息)
+- 含义：这是对话的文本内容数据。
+- 数据内容：包含了 ASR（语音转文字）识别出的你的话，或者 LLM（大模型）生成的 AI 的回复文字。
+- 主要字段：通常包含 text（文字内容）、definite（是否为最终结果）、userId（区分是你还是 AI）以及 paragraph（是否换行/新段落）。
+- 作用：驱动聊天界面的文字显示。当 definite 为 false 时，界面会呈现打字机般的实时流式输出效果。
+2. conv (Brief/Conversation State - 业务状态简报)
+- 含义：这是对话的逻辑状态数据，不包含具体的聊天文字。
+- 数据内容：告知前端 AI 当前处于哪个阶段，例如正在思考、正在说话或发言结束。
+- 主要字段：关键字段是 Stage 里的 Code。例如 Code: 3 代表 THINKING（思考中），Code: 5 代表 FINISHED（发言结束）。
+- 作用：驱动 UI 的动画和交互逻辑。例如，收到 Code: 5 后，前端会停止 AI 的音波动画，并将状态切换为“请开始说话”。
+3. 核心业务参数
+- text: "我们来看一下啊"
+  - 含义：这是实际生成的文本内容。
+  - 背景：如果是你说话，这就是 ASR（语音转文字）的结果；如果是 AI 说话，这就是 LLM 生成的回复。
+- definite: true
+  - 含义：最终确定标识。
+  - 作用：
+
+```
+    - false：代表这是“中间结果”，文字还在随着说话实时变化（类似打字机流式输出）。
+    - true：代表这一句话已经说完了，内容不再变动，可以正式转存入历史记录。
+```
+
+- paragraph: true
+  - 含义：段落结束/换行标识。
+  - 作用：如果为 true，前端 setHistoryMsg 逻辑会认为当前对话块已结束，下一条消息应该开启一个全新的气泡或新行。
+- userId: "Huoshan01"
+  - 含义：发送者的 ID。
+  - 注意：在你的日志中，Huoshan01 通常代表 AI 端。前端会根据这个 ID 将消息渲染在屏幕左侧（AI）还是右侧（用户）。
+4. 消息流控参数
+- roundId: 8
+  - 含义：对话轮次 ID。
+  - 作用：标记这是本场通话中的第 8 轮交互。它用于将文本、语音和状态消息（如 answerFinish）进行匹配归位。
+- sequence: 176
+  - 含义：序列号。
+  - 作用：在一个轮次（Round）中，消息会被拆分成很多小碎片发送。sequence 用于确保前端收到的碎片顺序是正确的，防止网络抖动导致的文字乱序。
+- timestamp: 1767689540525
+  - 含义：服务器产生这条消息的毫秒级时间戳。
+5. 其他配置参数
+- language: ""
+  - 含义：语言识别结果。此处为空，通常默认跟随系统设置（如中文 zh）。
+- mode: 0
+  - 含义：传输模式标识，一般用于内部协议区分。
+
+## 语音播放是在哪里控制的？
+
+AI 的回复从“文字”变成“声音”说出来的逻辑，是由 火山引擎 RTC SDK 自动处理 与 云端 AI Agent 协同 完成的。在前端代码中，你找不到类似于 play(audioBuffer) 这样的手动播放逻辑，因为它走的是 RTC 的 远端音频流订阅模式。
+具体逻辑分布在以下几个地方：
+6. 自动订阅设置（播放的前提）
+在用户加入房间时，代码就已经告诉 RTC 引擎：“只要房间里有音频，就自动播放出来”。
+- 代码位置：src/lib/RtcClient.ts
+- 逻辑：在 joinRoom 方法中，isAutoSubscribeAudio: true 这一行是关键。它确保了当 AI（远端用户）开始推送语音流时，你的浏览器会自动接收并交给系统扬声器播放。
+2. AI 语音流的产生（云端逻辑）
+这部分不在前端代码中，但在流程上非常重要：
+- 云端合成 (TTS)：云端的 AI Agent 在生成文字的同时，其内部的 TTS 引擎会将文字转成语音。
+- 发布音频流：AI Agent 会像一个真实的“远端用户”一样，在 RTC 房间里发布一个音频轨道。
+3. 前端感知 AI 说话（监听层）
+虽然 SDK 自动播放了声音，但前端通过监听事件来同步 UI（如显示音波图）。
+- 代码位置：src/lib/listenerHooks.ts
+- 逻辑：handleUserPublishStream 函数会监听到 userId 为 AI 的用户发布了 MediaType.AUDIO。
+- 触发播放控制：当监听到远端流发布时，代码会通过 RtcClient.setRemoteVideoPlayer（虽然名字叫 Video，但实际上也关联了该用户的媒体通道）来确保该用户的音视频渲染容器就绪。
+4. 自动播放限制处理（浏览器兼容）
+浏览器通常禁止网页在没有用户交互的情况下自动播放声音。
+- 代码位置：src/lib/listenerHooks.ts
+- 逻辑：handleAutoPlayFail 监听了 onAutoplayFailed 事件。如果 AI 的声音因为浏览器限制没弹出来，系统会通过 Redux 记录 addAutoPlayFail 状态，并在界面上提示用户点击屏幕以恢复声音。
+总结：声音播出的全路径
+1. 云端：AI Agent 生成文本 $\rightarrow$ TTS 转语音 $\rightarrow$ 推送到 RTC 房间。
+2. SDK 底层：由于 isAutoSubscribeAudio: true，RTC SDK 在收到音频包后直接调用浏览器的 Web Audio API 进行解码播放。
+3. 前端 UI：通过 handleRemoteAudioPropertiesReport 监听到远端音量变化，并更新 Redux 状态，驱动 AiAvatarCard 或 AudioController 的音波动画显示 AI 正在说话。
+
+## 二阶段 Rag架构改造
+
+### Rag架构改造过程中高频问题解决方案
+
+### 高频问题收集
+
+### Ai实时对话-智能客户-项目架构设计
+
+1. Orchestration服务接管架构
+  1. 豆包1.6（ARK）
+  2. 方舟 Prompt提示词编排
+  3. Rag知识库
+2. Rtc通信层
+  1. ARC语音转文字
+  2. TTS语音合成
+  3. 声音模拟
+3. 后端服务
+  1. Python FastApi
+  2. veDb业务数据库
+  3. veDb Ai会话管理
+4. 部署
+  1. Lighthouse
+  2. 容器化、弹性扩容
+5. 内容安全管控 Censor架构
+6.  API 网关 / 安全鉴权
+7. 前端界面
+  1. React + WebRtc + Redux-Toolkit
+
+## Agent服务改造
+
+接下来我们将加入Rag、知识库和自己的LLM prompt。
+
+目前的火山引擎提供的demo是完全不满足需求的，我们需要对架构进行改造。
+现有流程：火山引擎 RTC 云端 -> 直接调用 -> 火山引擎 Ark (Doubao) 模型。
+新流程 (加入 RAG & 管控)：
+1. ASR：火山引擎 RTC 负责将语音转为文本。
+2. 中转：RTC 云端将文本发送给 您的 Python Server (通过“第三方大模型”配置)。
+3. RAG 检索：Python Server 调用 火山引擎知识库 (Ark Knowledge Base) 检索相关文档片段。
+4. Prompt 构建：Python Server 从数据库读取 定制 Prompt，结合检索到的知识，组装成最终的系统提示词。
+5. 生成：Python Server 调用 火山引擎 Ark (Doubao) 生成回复。
+6. 返回：将回复返回给 RTC 云端。
+7. TTS：RTC 云端将回复转为语音播放。
+[图片]
+
+## 环境配置
+
+### 后台仓库地址
+
+[图片]
+
+### uv环境配置
+
+```
+# 安装 uv
+pip install uv
+```
+
+```
+uv init
+```
+
+```
+# 使用 uv 添加依赖并自动同步到文件
+uv add "volcengine-python-sdk[ark]"
+```
+
+```
+# 把requirements.txt的依赖迁移过来
+uv add -r requirements.txt
+```
+
+新项目初始化，类似npm i
+
+```
+uv sync
+```
+
+安装  ngrok
+
+```
+https://ngrok.com/download/windows?tab=download
+```
+
+登录，获取token
+[图片]
+执行
+
+```
+ngrok config add-authtoken <你的TOKEN>
+ngrok http 3001
+http://localhost:4040/inspect/http
+```
+
+可以查看ngrok的一些访问信息
+在项目根目录创建.env  （一定要创建）
+不要复制我的，跑不通。
+
+获取地址，参考：API KEY开通章节
+
+ARK_ENDPOINT_ID、ARK_API_KEY 豆包1.6的配置信息
+
+```
+https://console.volcengine.com/ark/region:ark+cn-beijing/endpoint
+```
+
+[图片]
+
+RTC_APP_ID、RTC_APP_KEY（就是临时token）
+
+```
+https://console.volcengine.com/rtc/aigc/run?projectName=default
+```
+
+SERVER_URL （ngrok中取到的）
+[图片]
+
+```
+# 火山引擎 AK/SK
+VOLC_ACCESS_KEY=AKLTY2IzYTFlc2MNlNDhNjk4YmFhMjJkYjM5ZmU3MGI
+VOLC_SECRET_KEY=T0dOa1pqQmVGN3TkRWa05HTmtNRGxpWkRneE5XRmpOR1V5T0dJNU1qQQ==
+```
+
+```
+# 方舟推理接入点 (在控制台创建，模型选 Doubao-pro/1.5/1.6)
+# 格式如: ep-20241230xxxx-xxxxx
+ARK_ENDPOINT_ID=doubao-seed-1-6-251015
+ARK_API_KEY=8fe7ae22-35c9-d9-8cb6-172a7dd6cf8d
+# RTC 应用配置
+RTC_APP_ID=6933e1446a6de10173e306
+RTC_APP_KEY=0016933e1446a6de10173e1e306SQBMb2sEhr9YaQb6YWkKXRSb29tMDEJAEh1b3NoYW4wMQYAAAAG+mFpAQAG+mFpAgAG+mFpAwAG+mFpBAAG+mFpBQAG+mFpIAAETZ6iZfTwa1Ej7bck6ZO3f8Ne+smkOmJ91HOiA8RMFA==
+```
+
+```
+# 本地服务的公网地址 (RTC云端必须能访问到这里)
+# 开发时请用 ngrok 等内网穿透工具，或者部署到公网服务器
+# 格式: http://xxx.xxx.xxx.xxx:3001
+SERVER_URL=https://varus-nonautonomously-samara.ngrok-free.dev
+```
+
+### 老版本，前端获取
+
+```
+http://localhost:3001/getScenes?Action=getScenes
+```
+
+```
+{
+    "ResponseMetadata": {
+        "Action": "getScenes"
+    },
+    "Result": {
+        "scenes": [
+            {
+                "scene": {
+                    "icon": "https://lf3-rtc-demo.volccdn.com/obj/rtc-aigc-assets/DoubaoAvatar.png",
+                    "name": "自定义助手",
+                    "id": "Custom",
+                    "botName": "ChatBot01",
+                    "isInterruptMode": true,
+                    "isVision": false,
+                    "isScreenMode": false,
+                    "isAvatarScene": null,
+                    "avatarBgUrl": null
+                },
+                "rtc": {
+                    "AppId": "6933e1446a6de10173e1e306",
+                    "RoomId": "ChatRoom01",
+                    "UserId": "Huoshan01",
+                    "Token": "0016933e1446a6de10173e1e306SQBMb2sEhr9YaQb6YWkKAENoYXRSb29tMDEJAEh1b3NoYW4wMQYAAAAG+mFpAQAG+mFpAgAG+mFpAwAG+mFpBAAG+mFpBQAG+mFpIAAETZ6iZfTwa1Ej7bck6ZO3f8Ne+smkOmJ91HOiA8RMFA=="
+                }
+            }
+        ]
+    }
+}
+```
+
+### 老版本
+
+```
+http://localhost:3001/proxy?Action=StartVoiceChat
+{
+    "Result": "ok",
+    "ResponseMetadata": {
+        "RequestId": "2026010717101650C002448EB69A299F37",
+        "Action": "StartVoiceChat",
+        "Version": "2024-12-01",
+        "Service": "rtc",
+        "Region": "cn-north-1"
+    }
+}
+```
+
+### 新版本
+
+```
+http://localhost:3001/proxy?Action=StartVoiceChat
+```
+
+```
+{
+    "Result": "ok",
+    "ResponseMetadata": {
+        "RequestId": "20260107170742873D3E37CC884F2E020F",
+        "Action": "StartVoiceChat",
+        "Version": "2024-12-01",
+        "Service": "rtc",
+        "Region": "cn-north-1"
+    }
+}
+```
+
+### callback接入豆包1.6 第三方LLM 参考文档
+
+```
+https://www.volcengine.com/docs/6348/1399966?lang=zh
+```
+
+## 什么是SSE？
+
+SSE（Server-Sent Events，服务器发送事件） 是一种基于 HTTP 协议的通信技术，允许服务器在有新数据时，主动且持续地将数据推送到客户端（通常是浏览器）。
+在目前的 AI 时代，SSE 是最主流的流式输出方案。比如你在使用 ChatGPT 或豆包时，看到文字一个字一个字地“跳”出来，背后用的基本都是 SSE。
+1. SSE 的核心工作原理
+SSE 建立的是一个 单向 的通信通道：
+1. 客户端发起请求：浏览器发送一个普通的 HTTP 请求给服务器，但在 Header 中明确要求 Accept: text/event-stream。
+2. 服务器保持连接：服务器不关闭这个 HTTP 连接，而是将响应头设置为 Content-Type: text/event-stream。
+3. 持续推送：只要有新消息，服务器就会按照规定的格式（以 data:  开头）源源不断地发送数据块。
+2. SSE 的数据格式
+SSE 要求传输的数据必须是 纯文本，且遵循特定的行格式：
+- 以 data:  开头：后接实际的数据内容。
+- 以 \n\n 结尾：两个换行符表示一条消息的结束。
+- 可选字段：还可以包含 id:（用于断线重连）或 event:（定义自定义事件类型）。
+标准示例：
+data: {"content": "你"}
+
+data: {"content": "好"}
+
+data: [DONE]
+3. SSE vs. WebSocket
+这是面试和开发中经常被比较的两个概念：
+[图片]
+4. 为什么 AI 聊天都选 SSE？
+1. 轻量化：基于现有 HTTP 架构，不需要额外的服务器配置。
+2. 实时性：模型每生成一个 Token（字/词），就可以立即通过 SSE 推送，用户体验极佳，不需要等几秒钟生成整段话。
+3. 防火墙友好：它本质上就是 HTTP 长连接，不容易被公司防火墙或代理服务器拦截。
+
+```
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+import asyncio
+```
+
+```
+app = FastAPI()
+```
+
+```
+async def event_generator():
+    words = ["天", "气", "真", "好", "呀"]
+    for word in words:
+        yield f"data: {word}\n\n"  # 必须符合 SSE 格式
+        await asyncio.sleep(0.5)
+    yield "data: [DONE]\n\n"
+```
+
+```
+@app.get("/stream")
+async def stream():
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+```
+
+## sse协议是谁定义的？
+
+SSE（Server-Sent Events）协议最初是由 伊恩·希克森（Ian Hickson） 定义的。
+如果你不熟悉这个名字，他也是 HTML5 规范 的主要编辑者之一。
+1. 协议的演进过程
+SSE 的历史可以追溯到 2004 年左右，它的发展经历了以下几个阶段：
+- Opera 软件公司提出原型：最早由 Opera 浏览器公司在 2004 年提出，当时名为“Server-Sent DOM Events”。其初衷是希望浏览器能有一种比“轮询（Polling）”更高效的方式来获取服务器数据。
+- 纳入 HTML5 草案：随后，这项技术被纳入了正在制修订的 HTML5 标准 之中。
+- W3C 与 WHATWG 标准化：
+  - WHATWG（网页超文本应用技术工作小组）负责 HTML 生活标准（Living Standard）的维护。
+  - W3C（万维网联盟）曾将其作为独立的 API 规范进行管理。
+2. 为什么需要定义这个协议？
+在 SSE 出现之前，网页如果想获取服务器的实时更新，只有两种不太优雅的选择：
+1. 轮询 (Polling)：每隔几秒问一次服务器“有新消息吗？”，这非常浪费带宽和性能。
+2. 长轮询 (Long Polling)：客户端发起请求，服务器挂起直到有数据才返回。这虽然比轮询好，但每次连接仍需重新握手，开销较大。
+3. 定义中的核心要素
+Ian Hickson 在定义 SSE 时，特别强调了 “简单” 和 “基于文本”：
+- 接口定义：定义了浏览器端的 EventSource 对象，开发者只需几行 JS 就能监听流。
+- 报文格式：规定了必须以 data:、event:、id: 等简单的 key-value 形式传输。
+- 自动重连：协议规定了浏览器在连接断开时必须自动尝试重新连接，并允许通过 retry 字段控制重连间隔。
+
+## 关键流程解读
+
+### handleUserPublishStream (远端流发布回调)
+
+Ai开始说话
+
+该函数通常作为 RTC SDK 的事件监听器（如 onUserPublishStream）的回调触发：
+- 触发时机：当频道内的其他用户（在本项目中通常是 AI 机器人）开始发送音频或视频流时。
+- 业务逻辑：
+  1. 区分媒体类型：判断远端发来的是音频、视频还是音视频混合流。
+  2. 动态绑定容器：根据当前是否全屏（isFullScreen），决定将远端视频渲染到哪个 DOM 节点（如 'remote-video-player' 或 'remote-full-player'）。
+  3. 状态同步：通过 dispatch(updateRemoteUser) 更新 Redux 状态，通知 UI 显示“AI 正在说话”或显示视频画面。
+/**
+ * 远端用户发布音视频流时的回调处理函数
+ * 触发场景：当房间里的其他用户（如 AI）开启麦克风或摄像头并成功推流时
+ * @param e 事件参数，包含用户ID和媒体类型
+ */
+
+```
+const handleUserPublishStream = (e: { userId: string; mediaType: MediaType }) => {
+  const { userId, mediaType } = e;
+```
+
+  // 1. 准备要更新到全局状态的数据负载
+
+```
+  const payload: IUser = { userId };
+```
+
+  // 2. 识别并标记该远端用户的媒体发布状态
+
+```
+  if (mediaType === MediaType.AUDIO) {
+    // 仅发布了音频
+    payload.publishAudio = true;
+```
+
+  } else if (mediaType === MediaType.VIDEO) {
+
+```
+    // 仅发布了视频
+    payload.publishVideo = true;
+```
+
+  } else if (mediaType === MediaType.AUDIO_AND_VIDEO) {
+
+```
+    // 同时发布了音频和视频
+    payload.publishAudio = true;
+    payload.publishVideo = true;
+  }
+```
+
+  // 3. 处理视频渲染容器的动态切换
+  // 从 store 中获取当前是否是全屏状态，决定 AI 视频画面的去处
+
+```
+  const isFullScreen = store.getState().room.isFullScreen;
+```
+
+  /**
+   * 通知 RTC 引擎将该用户的视频流挂载到指定的 DOM 元素上
+   * 'remote-video-player' 或 'remote-full-player' 对应页面中的 ID
+   */
+
+```
+  RtcClient.setRemoteVideoPlayer(
+    userId, 
+    isFullScreen ? 'remote-video-player' : 'remote-full-player'
+```
+
+  );
+
+  // 4. 日志记录与状态同步
+
+```
+  console.log('handleUserPublishStream Ai开始说话了', userId, mediaType);
+```
+
+  // 将最新的用户信息（是否在发声、是否有视频等）同步到 UI 层
+
+```
+  dispatch(updateRemoteUser(payload));
+```
+
+};
+
+### publishStream (本地流发布方法)
+
+我开始说话
+
+该函数是本地主动调用的方法：
+- 触发时机：
+  1. 用户手动操作：当用户在界面（如 ToolBar 或 Antechamber）点击“开启麦克风”或“开启摄像头”时。
+  2. 自动呼叫/加入成功后：在加入房间（joinRoom）成功且用户已授权设备后，系统会自动调用此方法将本地媒体流推送到服务器。
+- 业务逻辑：
+  1. 直接调用 this.engine.publishStream(mediaType)。
+  2. 底层 RTC SDK 会处理媒体协商，将本地采集的音视频数据发送给频道内的其他成员。
+
+### 接收message信息
+
+画面更新文本消息
+
+这个方法是rtc给我的回调
+
+```
+    this.engine.on(VERTC.events.onRoomBinaryMessageReceived, handleRoomBinaryMessageReceived);
+```
+
+  /**
+   * 接收房间二进制消息回调：Agent 发送的语义数据（字幕、状态）通过此处进入解析器
+   */
+
+```
+  const handleRoomBinaryMessageReceived = (event: { userId: string; message: ArrayBuffer }) => {
+    const { message } = event;
+    parser(message); // 调用 handler.ts 中的语义解析逻辑
+```
+
+  };
+
+## temperature参数0和0.3的区别？
+
+```
+[
+  {
+    "role": "system",
+    "content": "你是一个热情的AI培训顾问。请严格基于【参考知识库】回答。如果查不到，请回复[NO_REPLY]。"
+```
+
+  },
+
+```
+  {
+    "role": "system", 
+    "content": "【参考知识库开始】\n1. 课程名称：AIGC实战班；价格：2999元；大纲：包含提示词工程、模型微调；开课时间：11月15日。\n2. 课程名称：Python基础班；价格：999元；名额：仅剩5人。\n【参考知识库结束】"
+```
+
+  },
+
+```
+  {
+    "role": "user",
+    "content": "你们的AIGC课程多少钱？什么时候开课？"
+  }
+]
+Temperature = 0 (极度严谨)
+```
+
+- 回复特点：完全“复读”知识库，没有任何发散，逻辑极其稳定。
+- 可能的回复：
+- “您好！我们的AIGC实战班价格是2999元，开课时间是11月15日。”
+- 评价：像一个严格执行说明书的机器人。优点是绝不会出错，缺点是略显生硬，缺乏对话感。
+
+```
+Temperature = 0.3 (严谨且有对话感)
+```
+
+- 回复特点：在保证事实准确的前提下，语言组织会更自然、更像真人。
+- 可能的回复：
+- “太棒了！您关注的AIGC实战班目前售价是2999元，将在11月15日正式开课。现在报名还来得及哦！”
+- 评价：像一个真实、热情的课程咨询老师。它在知识库的基础上增加了一些感叹词和语气助词，但核心数据（2999元、11月15日）依然锁定在知识库范围内。
+
+接入知识库
+官方文档
+
+```
+https://console.volcengine.com/vikingdb/knowledge/region:vdb-knowledge+cn-beijing/collection/list
+```
+
+## 知识库和embedding的区别？以及向量数据库
+
+[图片]
+embedding模型的作用，只用于，将文本变成向量。无状态的。
+还需要  向量数据库 比如：VikingDB，进行向量存储
+
+知识库  = embedding模型 + 向量数据库
+非常复杂的项目用embedding模型 + 向量数据库    10万级别的文档 数量
+举例： 阿里云、腾讯云  云服务的知识库检索
+
+一般的项目 用知识库
+举例：智能客服
+知识库代码生成
+accont_id
+[图片]
+
+## 项目优化、难度亮点
+
+利用Prompt pilot进行提示词优化
+
+官方文档
+
+```
+https://console.volcengine.com/ark/region:ark+cn-beijing/autope/startup?workspaceId=ws-20260102221957-DSfVT
+```
+
+做项目一般写提示词，有三种方案
+1. 你自己写
+2. 让Ai（Gemini）帮你生成
+3. 使用Prompt pilot，更加专业的工具
+
+### 难点亮点： 利用Prompt pilot进行提示词精细化管理与评测集建立
+
+1. 建立“黄金标准” (Golden Dataset)
+当你把一个回复添加到评测集时，它通常包含两个部分：Prompt（输入） 和 Ideal Response（理想回答/参考答案）。
+- 你可以干嘛： 积累多了以后，你就拥有了一个属于你自己业务场景的“标准题库”。下次你修改了 Prompt 或者换了一个模型（比如从 Doubao 换到 DeepSeek），你可以直接用这个题库批量跑一遍，看看新方案的得分是否变高了。
+2. 自动化评分与对比
+Prompt Pilot 内部有一个“自动评分”机制。
+- 作用： 如果你有了一个带参考答案的评测集，当你运行新的 Prompt 时，系统会自动计算模型输出与你之前保存的“理想回答”之间的相似度、准确性等指标。
+- 你可以干嘛： 不再需要人工一条条去看回复得好不好，直接看系统的评分报告，快速判断哪个版本的 Prompt 更强。
+3. 给 AI 提供“智能优化”的素材
+这是 Prompt Pilot 最核心的黑科技功能：自动优化 Prompt。
+- 作用： 火山引擎的算法会根据你的评测数据集（尤其是你打分高和打分低的样本），去分析模型到底在哪些地方理解错了。
+- 你可以干嘛： 当你攒够了（比如 10 条以上）评测数据，点击“智能优化”，系统会利用强化学习或反思机制，自动帮你改写 Prompt。它会尝试不同的语气、结构和约束条件，直到生成的回复更接近你评测集里的“标准答案”。
+4. 为模型精调 (Fine-tuning) 做准备
+如果你未来发现 Prompt 无论怎么调都达不到 100% 的效果，可能就需要“精调”模型了。
+- 作用： 评测数据集里的“高质量回复”可以直接转化为 SFT（监督微调）的训练数据。
+- 你可以干嘛： 现在的 Prompt Pilot 支持“免费智能精调”。如果你评测集里的数据质量够高，它可以直接触发后台的模型微调，让模型从底层逻辑上更贴合你的业务需求。
+
+### 知识库检索优化
+
+参考文档
+
+```
+https://www.volcengine.com/docs/84313/1254593?lang=zh
+```
+
+利用假设性原则。 优化：会意淫场景
+
+稀疏和稠密向量
+
+```
+https://www.volcengine.com/docs/84313/1318623?lang=zh
+```
+
+稀疏向量就是带权重的传统数据库全文检索
+稠密向量就是纯语义查询，可能产生过度联想，举例：问python回复java
+
+### 难度亮点： 文档切片处理
+
+火山引擎默认的切片规则是： 你设置一个切片长度假设200，chunk_overlap重叠长度，内部自动帮你处理了，以完整句子的维度进行划分，避免了出现chunk出现半句话的情况。
+但是也有一个小瑕疵： 可能会，一个问题，回复部分被截断成了2半。
+我们通过修改Limit的长度，让大模型多拿几个结果，可能可以解决，可能不行。同时，会让LLM的提示词上下文变长，性能变慢，token消耗变多。
+
+可以怎么去优化？
+使用chunking_strategy进行自定义分隔符，比如智能客服的场景，可以以H1标签划分。
+搜索既精准，又省token，性能还不错。
+小弊端：需要人工去维护知识库，用人工去换取Ai的智能程度。
+
+什么情况下适合用长度去拆分呢？
+文档非常的散，杂志、新闻、文档比较乱
+[图片]
+
+### 难度亮点： 知识库index索引优化
+
+```
+https://www.volcengine.com/docs/84313/1254593?lang=zh
+```
+
+给文档打标签，帮助Ai更精准命中内容。
+举例： 0基础（4个月  标签：0基础） 需要基础（3个月  标签：有基础）  用户问： 我java出身，我要学多久? 
+
+```
+ "quant": "int8"
+```
+
+数字进行压缩，float32 => int8 性能和内存消耗，提升了4倍，精度损失1%不到
+
+```
+"embedding_dimension": 2048 维度调节
+```
+
+维度高，可以理解用户一些隐晦的表达。
+但是我们的智能客户，学生问题一般是比较精准的。学生90%的问题，都是很直接的。
+解决：
+1. 维度降低到 1000维
+2. Ai对话面，可以进行用户提问引导
+
+### 难点亮点： 知识库指定索引算法优化
+
+index_type
+hnsw_hybrid、hnsw（建立导航） 和 flat （类似mysql的精准查询）
+flat： 就像没有加索引的mysql，mysql是全表扫描对比值是否相等，flat也是全表扫描，但是它是一个一个计算向量是否接近。效果和精准搜索非常接近。
+hnsw： 建立地图，内存消耗大，查询快，适合语义查询。
+hnsw_hybrid： 混合检索与叫稀疏和稠密向量
+
+```
+https://www.volcengine.com/docs/84313/1318623?lang=zh
+```
+
+面试（假设性原则）：早期用的是混合检索方案，但是是两个数据库。
+1. 查mysql
+2. 查向量数据库
+升级到了混合检索，也叫稀疏和稠密向量。一个数据库解决精准+语义的问题。
+
+### 难点亮点：知识库检索优化
+
+limit：1-3条
+合理控制，控制LLM响应速度。数据好不好，对LLM的回复准确性影响很大
+
+field  根据文档的标签查询
+更加精确的命中用户意向的文档范围，核心：数据分类要做好
+
+dense_weight  调解稠密指数，可以0.5起手。
+如果你的业务：用户偏向说的模糊，调高一点。用户偏向语义直接，调低。
+[图片]
+
+rerank 重排指数调节，默认是25.
+情况一：直接关闭
+
+情况二：打开的情况
+标准 FAQ、业务查询（推荐：20）
+复杂长文档、政策法规解读（推荐：30 - 50）
+极致追求响应速度（推荐：10 - 15）
+如果追求极致性能。
+[图片]
+rerank 模型选择
+仅在重排开启时生效，智能客服的场景，推荐base，最快的、最轻量的方案。
+可选模型：
+- "doubao-seed-rerank"（即 doubao-seed-1.6-rerank）：字节自研多模态重排模型、支持文本 / 图片 / 视频混合重排、精细语义匹配、可选阈值过滤与指令设置
+- "base-multilingual-rerank"：速度快、长文本、支持70+种语言
+- "m3-v2-rerank"：常规文本、支持100+种语言
+
+6. 难度亮点： 重排rerank的开启与关闭选择
+开启和关闭的区别，开启能更好的识别用户的提问语义，适合用户有复杂的逻辑提问。
+用户提问： “公司除了法定节假日，还有什么带薪假？”
+- Rerank 关闭时，Top 3 结果可能是：
+  1. 《法定节假日休假标准》（因为包含大量“节假日”关键词，向量距离最近）
+  2. 《员工考勤管理制度》（包含“休假”关键词）
+  3. 《年假与福利假管理办法》（这才是真正想要的答案，但因为关键词重合度稍低，排在后面）
+  - 后果： AI 可能会根据第一条告诉你法定节假日怎么放，答非所问。
+- Rerank 开启时，Top 3 结果会变成：
+  1. 《年假与福利假管理办法》（重排模型识别出“除了...还有”的意图，将真正的答案从第 3 拎到第 1）
+  2. 《员工福利手册》
+  3. 《法定节假日休假标准》（被降权挤到后面）
+  - 后果： AI 第一眼就看到年假信息，回答非常精准。
+
+开启之后，给到LLM的检索片段质量可能会更高。如果关闭，我们可能需要提高Limit的数量来保证数据的准确性。
+
+开启的场景：
+1. 知识库复杂、专业
+2. 用户的提问逻辑复杂
+3. 轻性能，重准确性
+
+关闭的场景：
+1. 知识库结构简单
+2. 用户提问简答
+3. 重性能
+
+7. 难度亮点： Ai应用优化性能核心指导思路
+抓问题、抓主要矛盾。
+不仅仅用于Ai应用的场景，优化前端页面性能、后台的服务响应速度。
+
+谁耗时最长，我们就先优化谁。
+20%的精力，达到80%的优化效果。
+不是所有的问题都要解决。
+
+Ai实时对话
+1. 用户提问
+2. 查询Rag   0.5s  => 0.1
+3. LLM查询   5s => 3S
+4. 返回
+8. 难点亮点： 优化python热更新时间
+我的项目热更新的时间 10s => 1s
+[图片]
+1. 排除.pyc编译缓存文件
+2. 排除Venv   依赖包
+
+```
+if __name__ == "__main__":
+    import uvicorn
+```
+
+```
+    print(f"🚀 Server running at {settings.SERVER_URL}")
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=3001,
+        reload=True,
+        reload_dirs=[".", "services"],
+        # 依然建议排除缓存文件，防止编译行为触发重启
+        reload_excludes=[
+            "*/__pycache__/*",
+            "*.pyc",
+            ".venv/*",  # 排除根目录下的虚拟环境
+            "*/.venv/*",
+        ],
+    )
+```
+
+9. 难点亮点： 使用Swager UI搭建Ai调试环境
+
+提升整个小组的开发效率。
+1. 利用Ngrok将本地的服务映射到公网环境，提供给RTC服务进行callback
+2. 抽离出核心业务逻辑
+  1. rag查询
+  2. llm问答
+3. 利用swagger UI进行测试请求发送 http://localhost:3001/docs
+4. 我封装了一个工具类，接收两个参数（dev、debug）
+
+思维层面：
+项目的难点亮点
+1. 单纯的这玩意很复杂，你解决了，技术屌
+2. 这玩意不难，但是人家想不到，也不愿意想，你做了。主动性强
+
+给你们的是渔网。
+10. 难点亮点: LLM推理时间极致性能  15s => 2s
+刚开始提问时间 15s
+1. 同样的提示词，LLM多次调用时间会缩短，背后运用LLM Api的缓存机制Prompt Cache
+  1. 15s、12s、10s
+2. 切换模型  15s => 2、3s   doubao-seed-1.6 => Doubao-Seed-1.6-flash
+  1. 15s => 6、7s
+3. 开启深度思考会让大模型回复反而变快
+  1. 关闭深度思考、开启，背后资源池的优先级不一样
+  2. 开启深度思考可以更好的利用prompt cache机制
+  3. 关闭深度思考，没有思维链过程，会一次性突出结果，可能更慢响应用户
+4. 优化系统提示词
+7s => 2s
+  1. 知识库的风格 和 提示词的人设风格要统一，可以极大减少推理过程。
+5. 系统提示词合并优化
+2s =>1.5s 
+  将rag检索结果加入到system提示词中，合并为1条
+  1. 可以更好利用前缀缓存
+  2. 更好的触发KV Cache缓存
+6. 豆包1.8也很快，我们期待1.8 flash可能更快
+  1. 可能会性能到1s
+7. Long Cat也非常快，1s级别的响应速度。
+  1. 但是唯一的缺点，现在只支持纯文本，静待佳音
+
+场景适配建议
+- 纯文本知识库：优先选择Doubao-Seed-1.6-flash（版本250828），开启minimal思考模式
+- 图文混合知识库：推荐Doubao-Seed-1.6-lite（版本251015），支持图片理解
+- 极致成本控制：可选择Doubao-1.5-lite-32k（版本250115）
+11. 难点亮点： 利用批量推理，去评测LLM
+批量推理（Batch Inference）适用于无需实时响应的推理场景，可以一次性离线处理大量数据。相比在线推理，批量推理提供更高额度的访问限制，用户无需关注单次请求的执行情况，适合于模型评测、批量回归等场景。
+1. Prompt pilot带界面的，在界面中批量跑评测集。
+2. 我们也可以不带界面，可以在数据库中找用户的高频提问，筛选出来，讲这些数据存起来。
+  1. 产品可以干以下事情
+
+```
+    1. 收集用户提问
+    2. 给出理想答案
+    3. 给出评分标准
+```
+
+  2. 开发人员：（每次调整LLM的参数，或者换了LLM）
+
+```
+    1. 拿着产品的提问表，批量推理
+    2. 和产品的理想答案对比结果
+    3. 可以用评分标准让LLM自评分
+```
+
+这个就好比传统开发中的测试用例、单元测试。我每次改了核心代码，跑一次测试用例。
+
+12. 难点亮点 利用前缀缓存优化LLM性能
+1. 保持Rag回复的顺序，比如说一个回答，rag检索3条数据，建议按首字母排序，充分利用缓存
+  1. 为什么不能按语义相似度排序？
+
+```
+    1. 因为可能不稳定，会导致顺序有微妙变化
+```
+
+2. 会话Message，最好加上历史消息，也能利用前缀缓存
+
+13. 难点亮点 max Token使用量控制 
+业务中max token设置多少，95%的场景能覆盖到，再稍微加一点。
+
+[图片]
+上下文窗口 (Context Window) - 256k： 这是 AI 的**“总内存”**。包含（输入 + 输出 + 推理）的总和。256k 约等于 15-20 万个汉字，这意味着你可以一次性扔给它几本中型小说，它都能记得住。
+最大输入 Token 长度 - 224k： 这是你单次提问能塞进去的极限。必须小于上下文窗口，因为要留出空间给 AI 说话。
+最大输出 Token 长度 - 64k： 这是 AI 一次性回答的最长限制。哪怕它有写 100 万字的能力，只要这个设为 64k，它写到约 4-5 万汉字时就会强制停下。
+最大思考内容 Token 长度 (Reasoning) - 32k： 这是专门为**推理模型（如豆包 1.8）**设定的。AI 在输出正式答案前的“草稿纸”长度。如果逻辑极其复杂，它的“脑补”过程不能超过 32k。
+TPM (Tokens Per Minute) - 5000k： 每分钟总额度。你一分钟内发出的提问词 + AI 回答词的总数不能超过 500 万。
+- 意义：如果你发了一个超长文档（200k），那你每分钟只能发 25 个请求。
+RPM (Requests Per Minute) - 30k： 每分钟请求次数。你一分钟内最多只能点 3 万次“发送”按钮。
+- 意义：即使你的提问很短（只有 1 个 token），每分钟发 30001 次也会被拒绝。
+
+针对AI 语音对话场景，建议将 max_tokens 限制在 150 到 300 之间。
+为什么建议设在这个区间？
+- 体感时长（听感极限）： 人类说话的平均速度大约是每秒 4-5 个汉字。
+  - 150 tokens 约等于 100-120 个汉字，朗读出来大约需要 20-30 秒。
+  - 300 tokens 约等于 200-240 个汉字，朗读出来大约需要 50-60 秒。 在语音交互中，如果 AI 一个人连续说超过 1 分钟，用户就会感到疲劳并失去耐心，甚至想打断。
+- 首字延迟 (TTFT)： 虽然 max_tokens 主要是限制结尾，但在某些流式架构中，设置过大的 max_tokens 可能会让模型生成更复杂的长句。较小的限制能引导模型更快速地输出短句。
+[图片]
+仅仅限制 max_tokens 是不够的，因为模型可能会因为话没说完被强行掐断，导致语音播报突然停止（非常诡异）。你必须配合 Prompt：
+- Prompt 引导：
+- “你正在进行语音通话。你的回复必须简短、口语化。每句话控制在 3 行以内。避免使用复杂的列表或长句。”
+1. 代码参数：max_tokens=800（给 Reasoning 留够空间，防止截断报错）。
+2. 提示词控制：在 System Prompt 明确要求：“回答不要超过 100 字，语气要像好朋友聊天。”
+3. 流式传输 (Streaming)：一定要开启流式输出，让语音合成（TTS）能够一边接收文本一边开始读，而不是等 800 个 token 全跑完才开口。
+
+14. 难点亮点 ASR语音转文字优化
+Ai音视频互动方案文档
+
+```
+https://www.volcengine.com/docs/6348/1310537?lang=zh
+https://www.volcengine.com/docs/6561/1354869?lang=zh
+https://console.volcengine.com/speech/service/10038?AppID=7077298582
+```
+
+1. 使用双向流模式（优化版）
+  1. 语气词不发包
+  2. 降低RTF  识别时长/音频时长，不影响用户后面说话
+  3. 首字时延  300ms
+  4. 尾字时延  500ms
+  5. 单包大小 100-200ms
+2. 情绪检测开启
+  1. 根据用户情绪回复不同的话术
+  2. 根据用户情绪，我的TTS语音合成也带对应的情绪
+3. 敏感词过滤
+  1. 割韭菜
+  2. 外包
+  3. 行业黑话   不好的
+4. 热词设计
+  1. 用户说 皮果   实际上 他想说的是 苹果。  苹果设计成热词，更容易识别到
+  2. Ai 编程、应用开发、Agent
+  3. 收集日志，观察用户的错别字。
+
+```
+    1. 也可以用LLM去识别错别字
+      1. 你准备一个excel
+      2. 给到LLM  帮我分析有哪些高频错别字
+```
+
+```
+{
+    "ASRConfig": {
+        "Provider": "volcano",            // 必填：固定值
+        "ProviderParams": {
+            "Mode": "bigmodel",           // 必填：固定值
+            "Credential": {
+                "ApiResourceId": "volc.seedasr.sauc.duration" // 必填：：固定值
+            },
+            "StreamMode": 2,            // 必填：仅支持取值 1 或 2，推荐 2（双向流）
+            "VolcanoASRParameters": "{}"   // 透传到底层ASR api，部分可改  
+        }
+    }
+}
+```
+
+15. 难点亮点 TTS文字转语音优化
+
+```
+https://www.volcengine.com/docs/6561/1329505?lang=zh
+https://www.volcengine.com/docs/6348/1581712
+https://www.volcengine.com/docs/6348/2137637?lang=zh
+```
+
+声音训练开通
+
+```
+https://console.volcengine.com/ark/region:ark+cn-beijing/experience/voice?modelId=ve-voiceclone&tab=VoiceClone
+```
+
+参数示意
+
+```
+                "TTSConfig": {
+                    "Provider": "volcano",
+                    "ProviderParams": {
+                        "app": {"appid": "8897744369", "cluster": "volcano_icl"},
+                        "audio": {
+                            "voice_type": "S_37EK0ToR1",
+                            "speed_ratio": 1,
+                            "pitch_ratio": 1,
+                            "volume_ratio": 1,
+                        },
+                    },
+                },
+```
+
+[图片]
+
+1. 双向流式版本，推荐将流式输出的文本直接输入该接口。同样的文本调用一次该接口与多次调用合成接口相比，前者会更为自然，情绪更饱满。
+2. 语速   1.0  1.1
+3. 混音
+4. 缓存
+5. 音色复刻
+6. 声音情绪
+
+1.0版本
+1. 声音 ASR
+2. 文字 => llm => 文字
+3. 声音 TTS
+
+2.0版本  端到端（声音 => 声音） 更优秀 情绪化更好
+1. 声音
+2. 声音
+16. 难点亮点 RTC服务优化
+veRTC
+
+```
+https://www.volcengine.com/docs/6348/66812?lang=zh
+```
+
+1. 低延时：全球端到端 400ms 延时达标率 ≥ 99.5%，服务端平均延时 < 50ms。
+2. 弱网自适应：应用FEC（前向纠错）、ARQ（自动重传请求）、HARQ（混合自动重传请求）、自适应 Jitter Buffer、自适应码率下发等弱网策略，实现 50% 丢包无感知恢复，最高 80% 抗丢包能力。
+3. 实现 48kHz 高音质全双工的回声消除。
+- 性能动态适配：支持智能流控协议，可以综合考虑音视频通话中每个订阅者的个性化需求，在网络情况、终端性能发生变化的时候，自动调整音视频流的配置，提升用户体验。
+- 传统的RTC是点对点，房间用户进多了之后网络压力会很大。VERTc用的火山引擎边缘计算节点转发机制，保证了服务的高可用和性能。
+FEC (Forward Error Correction) - 前向纠错
+- 通俗理解：“买一份备份带在身上”。
+- 原理：发送方在发送原始数据包时，根据一定的算法（如 XOR 或 Reed-Solomon）额外增加一些“冗余包”。
+- 作用：如果网络丢了几个包，接收方可以利用剩下的数据包和这些冗余包，通过数学计算直接把丢失的内容计算出来。它不需要等待重传，实时性最高，但会占用额外的带宽。
+ARQ (Automatic Repeat Request) - 自动重传请求
+- 通俗理解：“发现丢了立刻喊对方重发”。
+- 原理：接收方发现数据包序列不连续（丢包了），立即给发送方发一个消息说：“序号 5 的包没收到，请重发”。
+- 作用：相比 FEC，ARQ 更节省带宽（只有丢了才补），但会增加延迟（往返一次的时间）。它通常用于对延迟不那么敏感或者网络丢包率较低的情况。
+HARQ (Hybrid ARQ) - 混合自动重传请求
+- 通俗理解：“把 FEC 和 ARQ 结合起来的高级版”。
+- 原理：它将 FEC 的纠错码和 ARQ 的重传机制融合。接收方收到有错误的包不直接扔掉，而是存起来，等重传包到了之后，把旧的错包和新的包进行合并解码。
+- 作用：大大提高了重传的成功率，减少了重传次数，是目前 5G 和高性能 RTC 系统的标配。
+缓冲与流控策略
+自适应 Jitter Buffer (抖动缓冲区)
+- 通俗理解：“给快递设一个中转站，攒齐了按顺序发”。
+- 原理：网络丢包会导致包到达的时间忽快忽慢（这叫“抖动”）。Jitter Buffer 会把收到的包先缓存一下，按照正确的顺序排好队，匀速送给解码器。
+- “自适应”：系统会实时监测网络。网络好，缓冲区就小（延迟极低）；网络差，缓冲区就自动变大（牺牲一点延迟来换取不卡顿）。
+自适应码率下发 (Adaptive Bitrate Control)
+- 通俗理解：“根据路况调整车速”。
+- 原理：实时检测网络带宽。当发现网络拥塞、丢包率升高时，主动降低发送数据的质量（比如降低音频采样率或视频分辨率）。
+- 作用：宁可让声音听起来稍微“糊”一点，也要保证声音连续不中断，避免因为带宽塞车导致彻底没声。
+17. 难点亮点  Agent业务优化
+
+```
+https://www.volcengine.com/docs/6348/1415216?lang=zh
+```
+
+1. 1.0 版本升级到2.0
+2. 语音降噪
+3. 短期记忆
+4. 长期记忆
+5. 打断Ai
+6. 声音带情绪
+7. 播报内容过滤
+8. 加入Ai数字人
+9. 传入文本直接提问
+
+剩余难点亮点：
+1. 业务扩展
+2. 部署
+
+## 写简历-项目1部分
+
+### Ai + 我的综合版本（最终版）
+
+Ai实时语音对话-智能客服   2025.3 ~ 至今
+1. 基于 Prompt Pilot管理提示词，通过构建评测集实现自动化评分与版本对比；利用智能优化算法对负样本进行提示词重构；沉淀高质量数据为后续模型精调 (Fine-tuning) 做准备，确保了回复的高准确性与一致性。
+2. 采用自定义标识符对知识库进行切片，解决语义截断问题，应用 HNSW_HYBRID 混合检索与 Int8 量化技术，构建 Metadata 标签过滤机制，实现存储空间降低 75%。
+3. 针对 AI 语音场景通过降维与精简 Limit 策略，引入 base-rerank 轻量模型，动态平衡 dense_weight  权重，在保持语义理解的同时显著提升专有名词的命中率，检索速度提升 4 倍。
+4. 极致优化 LLM 推理链路性能，通过固定 RAG 检索片段排序、合并 System Prompt 消息体等手段，深度触发模型前缀缓存（Prefix Caching）与 KV Cache 机制，将复杂 RAG 场景下的首字延迟（TTFT）从 15s 压缩至 2s 内；并针对业务进行模型选型与资源池优先级调优。
+5. 构建高效率 AI 集成开发环境，利用 Swagger UI 抽象核心业务逻辑实现可视化模型评测，并配合 Ngrok 公网映射解决 RTC 语音回调调试难题；同步优化 Python 服务热更新机制，通过精细化 reload 排除策略将开发重启耗时从 10s 降低至 2s，在保持 LLM 性能压榨的同时大幅提升了团队的工程迭代效率。
+6. 深度优化 RTC 语音识别（ASR、TTS）链路，基于 ASR 实时捕获用户情感波动，并配合 TTS 声音复刻，实现情绪化回复。配合 RTC 弱网策略，利用 FEC（前向纠错）与自适应 Jitter Buffer 协同优化，实现 50% 高丢包环境下语音对话无感知恢复，确保了极端网络场景下语音流的连续性。
+7. 针对语音场景建立 Max Token 分级控制模型，通过分析 95% 覆盖率边界动态配置推理与输出比例，有效提升了单请求的 Token 利用率。
+
+## 面试题
+
+项目中的__pycache__文件是啥？
+在 Python 项目中，你经常会看到一个名为 pycache 的文件夹。这里面存放的是 Python 编译后的字节码（Bytecode）文件。
+简单来说，当你运行 Python 程序时，它不是直接读取 .py 源代码，而是先将其“翻译”成机器更容易理解的中间格式。
