@@ -1,630 +1,560 @@
-# LangChain 全解析
+ 学习笔记（核心提炼）
 
-> 参考官方文档
+LangChain 是目前大模型应用开发的主流开源框架。
+开门见山：如何选择Langchain 和 Langgraph？
 
-https://docs.langchain.com/oss/python/langchain/install
-langchain的文档，我带大家完全读一遍，下来之后，大家要脱离我，自己把langchian官方文档再读3遍，langchian会是面试重点。
+LangChain（Chains / LCEL）适合“单向直达”的线性任务
+它就像一条单向的工厂流水线（A -> B -> C）。
+比如：用户提问 -> 检索知识库 -> 拼接提示词 -> 大模型生成答案。
+这种任务步骤固定、不需要回头，用 LangChain 的链式结构写起来最快、最简单。
 
-## 阅读过程笔记
+LangGraph 适合“带循环、条件分支”的图式任务（尤其是复杂的 Agent）
+它就像一个复杂的交通路网，允许状态流转、条件判断和无限循环。
+比如：让大模型写一段代码 -> 运行测试 -> 如果报错，就把错误信息发回给大模型让它重写（形成循环） -> 直到测试通过再输出。
+这种需要“反复横跳”和“记忆全局状态”的任务，LangChain 的单向链条很难搞定，必须用 LangGraph 来画状态图。
 
-我直接记录重点，大家学习结合官网，和我的重点笔记。
-```python
-pip install -U langchain
-# Requires Python 3.10+
-```
+用传统的 Workflow（比如 Zapier、Airflow、甚至企业里的审批流引擎）不就行了吗？为什么非要用大模型专属的框架？
 
-例子： 如果新版 langchain 需要 langchain-core 达到 0.3.0，而你本地是 0.1.0，-U 会顺手把 langchain-core 也给升了。
+最核心的区别可以用一句话概括：传统的 Workflow 是“死”的（基于死规则），而 LangChain/LangGraph 的 Workflow 是“活”的（自带一个会思考的大脑）。
+具体来说，有以下三大核心区别，这也是必须用它们的理由：
 
-```python
-from dataclasses import dataclass
-```
+传统 Workflow 只能处理“死数据”，它能处理“活语言”
+- 传统 Workflow：只能处理高度结构化的数据。比如：如果 订单金额 > 1000，就发邮件给经理。它看不懂一封充满抱怨的客户邮件。
+- LangChain/LangGraph：专门用来处理非结构化数据（自然语言、文档、甚至图片）。你可以设定：读取客户邮件 -> 大模型判断客户情绪 -> 如果是“愤怒”，则生成安抚话术并走加急通道。
+    大模型充当了 Workflow 中的“理解和判断节点”。
 
-```python
-from langchain.tools import tool, ToolRuntime
+传统 Workflow 路线是写死的，它能“动态决定路线”
+- 传统 Workflow：必须穷举所有的 If-Else 分支。如果遇到程序员没写过的情况，流程直接崩溃。
+- LangGraph (Agent)：你不需要写死路线，你只需要给它一堆工具（比如：计算器、网页搜索、数据库查询）。当用户问“苹果公司昨天的股价和今天的天气”时，大模型会自己决定：“我先调用天气工具，再调用搜索工具，最后把结果拼起来给你。”——这种自主规划路线的能力，传统工作流根本做不到。
 
-# --- 基础工具定义 ---
-@tool
-def get_weather_for_location(city: str) -> str:
-```
-
-    # 这是一个标准的原子工具，参数 'city' 由 LLM 根据用户输入自动提取并填充
-```python
-    return f"It's always sunny in {city}!"
-
-# --- 运行时上下文定义 ---
-@dataclass
-class Context:
-    """
-    自定义运行时上下文架构
-```
-
-```python
-    """
-    user_id: str
-
-```
-
-```python
-@tool
-def get_user_location(runtime: ToolRuntime[Context]) -> str:
-```
-
-    # 注意：'runtime' 这个参数在发给 LLM 的描述（Schema）中会被自动隐藏
-    # LLM 不知道这个参数的存在，因此它不会尝试去伪造一个 runtime 对象
-
-    # 从注入的运行时对象中提取上下文数据
-```python
-    user_id = runtime.context.user_id
-    
-    # 模拟根据后端传入的真实用户 ID 返回对应的地理位置
-```
-
-在 Python 中，dataclass 是一个装饰器，它能让你用极简的代码定义一个纯数据类。
-```python
-@dataclass
-class Context:
-    user_id: str
-```
-
-为什么要用它？：
-- 自动生成方法：它会自动帮你写好 init（构造函数）和 repr（打印信息）。
-- 类型检查：在大型项目中，这能防止你把 user_id 错写成 uid。
-- 不可变性支持：你可以设置 frozen=True，确保这些上下文数据在传输过程中不被恶意篡改。
-
-```python
-def get_user_location(runtime: ToolRuntime[Context]) -> str:
-```
-
-解决的核心痛点：LLM 的“越权”问题。
-- 通常情况下，工具的所有参数（如 city）都要写在文档字符串（Docstring）里告诉 AI。
-- 但 user_id 是敏感的隐私数据，绝对不能让 AI 知道或修改。
-- 魔法所在：当 LangChain 看到参数类型是 ToolRuntime 时，它会从发给 AI 的“说明书”中删掉这个参数。
-
-```python
-from langchain.agents.structured_output import ToolStrategy
-
-agent = create_agent(
-    model=model,
-    system_prompt=SYSTEM_PROMPT,
-    tools=[get_user_location, get_weather_for_location],
-    context_schema=Context,
-    response_format=ToolStrategy(ResponseFormat),
-    checkpointer=checkpointer
-)
-
-```
-
-```python
-config = {"configurable": {"thread_id": "1"}}
-
-response = agent.invoke(
-    {"messages": [{"role": "user", "content": "what is the weather outside?"}]},
-    config=config,
-    context=Context(user_id="1")
-)
-
-print(response['structured_response'])
-# ResponseFormat(
-```
-
-#     weather_conditions="It's always sunny in Florida!"
-# )
-
-# Note that we can continue the conversation using the same `thread_id`.
-```python
-response = agent.invoke(
-    {"messages": [{"role": "user", "content": "thank you!"}]},
-    config=config,
-    context=Context(user_id="1")
-)
-
-print(response['structured_response'])
-# ResponseFormat(
-```
-
-#     weather_conditions=None
-# )
-### thread_id
-
-它是 LangChain 内部预留的“插槽”，但具体的值必须由你的业务层来定义。
-简单来说，thread_id 是 LangChain 规定的一种“协议标准”，而你负责提供**“具体的号码”**。
-场景 A（客服机器人）：业务上通常把用户的 OpenID 或 手机号 作为 thread_id。
-场景 B（多轮对话网页）：业务上通常在前端生成一个 UUID 传给后端作为 thread_id。
-场景 C（内部自动化脚本）：你可以简单地用 "1"、"2"、"test_session"。
-对 LangChain 而言：它不需要知道你的用户是谁。它只知道：只要你给我的 thread_id 是一样的，我就去数据库里把对应的历史记录翻出来。
-对你的业务而言：你不需要手写 SELECT * FROM history WHERE user_id=...。你只需要把业务中的唯一标识符塞进这个“插槽”，剩下的持久化操作全部由 LangChain 自动化完成。
-
-### ToolStrategy
-
-它就像是一个**“强制翻译官”**，它的任务是：强制要求 LLM 必须以调用工具的方式来输出最终答案，即使它只是在跟你闲聊。
-在 LangChain 的 structured_output 模块中，ToolStrategy 是一种具体的实现方案。它的逻辑逻辑是：
-- 内部封装：它会将你定义的 ResponseFormat（一个 Pydantic 类或 BaseModels）转换成一个 “隐藏工具” 的描述。
-- 强制绑定：它告诉模型：“你不许直接吐字符串！你必须通过调用这个叫 ResponseFormat 的工具来提交你的作业。”
-如果你不使用 ToolStrategy，模型可能会返回：
-“嘿！佛罗里达今天天气不错，是晴天。”
-使用了 ToolStrategy 后，模型必须返回类似这样的结构：
-```python
-JSON
-{
-  "name": "ResponseFormat",
-  "arguments": {
-```
-
-```python
-    "weather_conditions": "Sunny"
-  }
-}
-```
-
-当你设置了 ToolStrategy(ResponseFormat)，Agent 的运行链路发生了微调：
-1. 构造 Prompt：框架在发送给 AI 的 Prompt 末尾悄悄加上指令：“请使用 ResponseFormat 工具进行回复”。
-2. 约束输出：利用 OpenAI/Claude 的 tool_choice 参数，强制模型进入工具调用模式。
-3. 结果转换：模型吐出工具调用数据后，ToolStrategy 负责拦截这个调用，将其转换成 response['structured_response'] 供你直接读取。
-
-```python
-from langchain.agents import create_agent
-from langchain.messages import SystemMessage, HumanMessage
-
-literary_agent = create_agent(
-    model="anthropic:claude-sonnet-4-5",
-    system_prompt=SystemMessage(
-        content=[
-            {
-                "type": "text",
-```
-
-```python
-            },
-            {
-                "type": "text",
-```
-
-```python
-                "cache_control": {"type": "ephemeral"}
-            }
-        ]
-    )
-)
-
-result = literary_agent.invoke(
-    {"messages": [HumanMessage("Analyze the major themes in 'Pride and Prejudice'.")]}
-)
-            {
-                "type": "text",
-```
-
-```python
-                "cache_control": {"type": "ephemeral"}
-            }
-```
-
-主要有以下三个核心架构原因：
-1.1 定义“真理边界”（Grounding）
-- 用户提示词（User Message）：在 AI 看来是**“外部命令”**。用户可以说“忽略之前的指令”，这会导致 AI 产生偏移。
-- 系统提示词（System Message）：在 AI 看来是**“世界观/底层规则”**。
-- 实际效果：当你把《傲慢与偏见》放在系统消息里，你其实是在告诉 AI：“你现在不是一个通用 AI，你是一个基于这段文字存在的世界里的分析专家。”这能显著提高 AI 回答的忠实度，减少“胡说八道”。
-1.2 触发“前缀缓存”的物理限制
-这是最硬核的技术原因。几乎所有支持 Prompt Caching 的服务商（包括你关注的火山引擎、Anthropic、DeepSeek）都遵循一个原则：
-- 缓存只从最顶端开始。
-- 用户提示词是变动的（每轮问题都不同），如果小说放在用户消息里，随着对话轮数增加，前面的对话历史会不断挤压或改变位置。
-- 系统提示词是固定的。把它放在最顶层，能确保这段巨大的文本始终占据 Prompt 的起始位置，从而让每一轮对话都能完美命中缓存，节省 90% 的成本。
-1.3 隔离“多轮对话”的上下文
-- 如果小说在用户消息里：它会被视为对话历史的一部分。在多轮对话中，它会随着 MessagesState 被反复传递，甚至可能在“总结历史记录”时被 AI 给精简掉（因为它太长了）。
-- 如果小说在系统消息里：它是独立于对话历史的“背景板”。无论你和 AI 聊了 50 轮还是 100 轮，AI 都能始终如一地引用系统消息里的全文。
-
-### Log probabilities
-
-model = init_chat_model(
-```python
-    model="gpt-4o",
-    model_provider="openai"
-).bind(logprobs=True)
-
-response = model.invoke("Why do parrots talk?")
-print(response.response_metadata["logprobs"]
-```
-
-这属于 大模型原理与质量评测 的进阶技能，主要有以下三个用途：
-1. 检测“幻觉”（Hallucination Detection）： 如果模型在回答某个关键事实（比如日期、人名）时，对应的 logprobs 数值非常低（比如只有 20% 的置信度），说明模型在“瞎编”的可能性很大。你可以据此在后台做逻辑判断：当置信度低于 50% 时，提示用户“该结果仅供参考”。
-2. 提示词工程（Prompt Engineering）的优化： 你可以对比两种提示词。如果 A 提示词下模型输出词汇的概率都很稳定（高分），而 B 提示词下概率起伏很大（低分），说明 A 提示词对模型的引导更清晰。
-3. 采样策略研究： 这能帮你理解 Temperature（温度）参数是如何影响模型选择的。
-
-### BaseModel 和 ToolStrategy 的区别？不都是定义数据结构吗
-
-但从架构角色上来说，BaseModel 是**“静模”（数据的样子），而 ToolStrategy 是“动效”**（获取数据的手段）。
-我们可以用**“填表”**来做个形象的类比：
-BaseModel：空白的表格（数据定义）
-BaseModel（通常来自 Pydantic）仅仅定义了数据应该长什么样。
-- 它是静态的：它只是一张带有字段名（如 name, age）和类型（如 str, int）的空白表格。
-- 它的作用：校验。如果你往表里填了错误的数据，它会报错。
-- 代码表现：
-```python
-class ResponseFormat(BaseModel):
-    answer: str
-    confidence: float
-```
-
-ToolStrategy：强迫 AI 填表的“行政手段”（交互策略）
-ToolStrategy 是 LangChain 中的一个动作逻辑，它利用了 LLM 的“工具调用”能力。
-- 它是动态的：它是一个**“策略”**。它告诉 Agent：“在这次任务结束时，你必须通过‘调用工具’这个动作来把那张 BaseModel 表格填好给我。”
-- 它的作用：执行。它把原本用于搜索、计算的“工具协议”，借用来作为“输出协议”。
-- 代码表现：
-response_format = ToolStrategy(ResponseFormat)
-这一行代码的背后，LangChain 做了两件事：
-1. 自动把 ResponseFormat 包装成一个名为 ResponseFormat 的虚拟工具。
-2. 在发送给 AI 的请求中，强制设置 tool_choice="ResponseFormat"。
-
-```python
-@tool("calculator", description="Performs arithmetic calculations. Use this for any math problems.")
-def calc(expression: str) -> str:
-    """Evaluate mathematical expressions."""
-    return str(eval(expression))
-```
-
-"""使用 Python 的 eval 环境计算算术表达式。支持 + - * / 等操作。注意：由于使用了 eval，请确保输入来源安全。"""
-Decorator Description（给 AI）：写得带有“诱导性”，明确告诉它什么时候该用。
-```python
-@tool(description="当你遇到任何数学计算、加减乘除、百分比转换时，必须调用我。")
-
-human_msgs = sum(1 for m in messages if isinstance(m, HumanMessage))
-human_msgs = 0
-for m in messages:
-    if isinstance(m, HumanMessage):
-        human_msgs = human_msgs + 1  # 看到一个目标，就加 1
-from langchain.agents import create_agent
-from langchain.agents.middleware import SummarizationMiddleware
-from langgraph.checkpoint.memory import InMemorySaver
-from langchain_core.runnables import RunnableConfig
-
-checkpointer = InMemorySaver()
-
-agent = create_agent(
-    model="gpt-4o",
-    tools=[],
-    middleware=[
-        SummarizationMiddleware(
-            model="gpt-4o-mini",
-            trigger=("tokens", 4000),
-            keep=("messages", 20)
-        )
-    ],
-    checkpointer=checkpointer,
-)
-
-```
-
-agent.invoke({"messages": "hi, my name is bob"}, config)
-agent.invoke({"messages": "write a short poem about cats"}, config)
-agent.invoke({"messages": "now do the same but for dogs"}, config)
-```python
-final_response = agent.invoke({"messages": "what's my name?"}, config)
-
-final_response["messages"][-1].pretty_print()
-"""
-================================== Ai Message ==================================
-
-Your name is Bob!
-"""
-SummarizationMiddleware(
-```
-
-```python
-    trigger=("tokens", 4000), # 2. 触发条件：当对话总 Token 超过 4000 时启动压缩
-```
-
-)
-### stream 中的 stream_mode
-
-1. updates (你代码中正在使用的模式)
-这是最常用、最推荐的 Agent 调试模式。
-- 逻辑：每当图中有一个节点（Node）执行完毕并产生了状态更新时，就推送一次数据。
-- 内容：它只推送被修改的那部分 State。
-- 你的代码表现：你会先看到 agent 节点输出一个 ToolCall，然后看到 tools 节点输出 get_weather 的结果，最后是 agent 节点输出最终回复。
+传统 Workflow 报错就停，它能“自我纠错”
+- 传统 Workflow：执行到第 3 步，API 报错了，流程直接亮红灯，停机等待人工处理。
+- LangGraph：它具备反思（Reflection）和纠错能力。比如让它写一段代码并运行，如果运行报错了，LangGraph 可以把“错误代码”传回给大模型，大模型会说：“哦，少了一个括号，我改一下再试。” 它可以在循环里不断试错，直到任务成功。
 
 ---
-2. values (全量模式)
-- 逻辑：每当状态发生变化，它会推送整个 State 对象。
-- 特点：虽然数据量大，但对前端很友好，因为你不需要自己去做“状态合并”。每一帧你拿到的都是当前对话最完整、最新的样子。
+通俗比喻：
+- 传统 Workflow 就像工厂的自动化传送带：效率极高，但只能按固定轨道走，一旦传送带上掉下来一个它没见过的零件，机器就卡死了。
+- LangChain/LangGraph 就像你雇佣了一个有经验的数字员工：你不仅给了他一套标准SOP（链），还给了他一个大脑（大模型）。遇到没见过的问题，他会自己查资料、自己判断、自己纠正错误，最终把结果交给你。
+- 
+所以，只要你的业务流程中需要**“理解人类语言”、“模糊判断”或“自主试错”**，
+用 LangChain/LangGraph 这样的 AI 框架，传统 Workflow 引擎是完全无能为力的。
+
+
+
+对于langcain的一些特点：
+1. 模块化设计（核心优势）
+主打“搭积木”式开发。把模型调用、提示词、记忆管理等封装成了独立组件。不用重复造轮子，相比传统框架，开发效率能提升约 40%。
+2. 开发者友好（上手快）
+基于 Python，API 设计极简，官方文档和社区 Demo 丰富。据统计，上手速度快 ，代码维护成本降低。
+3. 场景与数据接入（企业级刚需）
+不仅支持无缝切换各种大模型（OpenAI、本地模型等），最强大的是内置了数据连接器。支持直接接入 20 多种企业私有数据源（数据库、本地文档等），解决数据隐私问题。
+4. 顺应技术趋势（多模态与可控性）
+不仅能处理文本，现在也能处理图像输入。内置了调试和监控工具，解决了 AI 应用经常出现的“黑盒”问题，让执行流程更透明、可控。
+5. 生态与维护（行业标准）
+社区极其庞大（GitHub 超 10 万 Star），有专业团队定期维护更新。2025 年企业采用率高达 68%，已经是大模型开发的**“事实标准”**，不用担心框架烂尾。
+6. 环境准备简单（实操第一步）
+要求：Python 3.8 及以上版本。
+安装：直接通过 pip 或 conda 安装即可。
+
+
+LangChain 的最简结构其实就是一条数据处理的流水线。
+为了让您一目了然，我们先看它的五大核心模块。
+暂时无法在HONOR E Link文档外展示此内容
 
 ---
-3. messages (消息流模式)
-- 逻辑：专门为对话场景优化。它不仅在节点结束时推送，还会流式推送（Streaming） AI 正在生成的每一个字（Token）。
-- 场景：如果你想要像 ChatGPT 那样“一个字一个字蹦出来”的效果，必须用这个模式。
-- 代码差异：此时 data 里包含的是消息碎片（Message Chunks）。
+最直观的代码例子：搭建一条基础的“链 (Chain)”
+在最新的 LangChain 中，最核心的结构体现为 LCEL (LangChain 表达式语言)。它使用管道符 | 把各个组件像拼图一样串起来。
+假设我们要实现一个简单的功能：用户输入一个中文词，大模型把它翻译成英文，并严格以 JSON 格式输出。
+以下是完整的结构代码示例：
+暂时无法在HONOR E Link文档外展示此内容
+结构解析（大白话版）
+在这个例子中，您能清晰地看到 LangChain 的整体流转结构：
+1. 数据流入：用户输入 {"word": "苹果"}。
+2. 第一站 (Prompt)：把“苹果”填入模板，变成一段完整的指令：“请将以下中文翻译成英文...词语：苹果”。
+3. 第二站 (Model)：大模型接收指令，进行思考，输出一段字符串 {"translation": "Apple"}。
+4. 第三站 (Parser)：解析器把字符串清洗干净，变成程序可以直接使用的 JSON 数据。
+5. 数据流出：最终返回给您干净的结果。
+
+加入知识库和Memory的Chain
+这就是 LangChain 最基础、最核心的结构！
+如果您要加入本地知识库 (Retrieval)，只需要在这条流水线的最前面加一个“搜索文档”的节点；
+如果要加入记忆 (Memory)，就在流水线旁边挂一个保存历史记录的组件。万变不离其宗，都是组件的拼接。
+
+在最新的 LangChain 架构中，加入这两个功能依然是“拼图”的思想，
+只是我们引入了 RunnablePassthrough（用于传递检索到的知识）和 RunnableWithMessageHistory（用于外挂记忆）。以下是最直观的代码例子：
+暂时无法在HONOR E Link文档外展示此内容
+结构解析（大白话进阶版）
+
+在这个加入了知识库和记忆的完整例子中，数据流转变得更加智能，但依然遵循流水线的逻辑：
+暂时无法在HONOR E Link文档外展示此内容
 
 ---
-4. debug (开发者模式)
-- 逻辑：极其详细。它会推送所有内部细节，包括每个节点的输入、输出、甚至是在执行哪些内部函数。
-- 用途：只在开发环境下排查“为什么 Agent 逻辑卡住了”时使用。
+【进阶过渡：从“手动挡流水线”到“自动挡智能体”的代码演进，可直接从此章节开始学习】
+在掌握了基础的 | (LCEL) 语法后，我们需要了解 LangChain 框架在面对**“复杂工具调用”**时，发生的一次极其优雅的架构升级。
+这里要特别说明一句：你在最新博客里看到代码风格大变，绝对不是我们之前学的操作不对，而是官方工具本身在近期版本（特别是引入 LangGraph 生态后）进行了跨代升级。
+虽然底层依然是我们熟悉的 Prompt、Model 和 Parser，但当我们需要让大模型自主使用工具（Tools）时，代码的编写范式发生了改变。
 
-## 中间件
+为了让你直观感受到这种工具升级带来的便利，我们假设有一个需求：“让大模型调用天气工具，查询北京天气并回复用户”。
+我们来看看实现同样的功能，旧版本的“单向链条”和新版本的“Agent 智能体”在代码上有什么区别：
+1. 以前的做法：LCEL 单向链条（手动挡）
+在纯 LCEL 时代，因为流水线是单向的，不能自动回头。
+如果大模型决定调用工具，开发者必须自己写代码去拦截、执行工具，然后再手动把结果塞回给大模型。
+只是你之前学的是**“如何构建一条完美的单向流水线（Chain）”，
+而现在的 create_agent，是为了解决“如何构建一个能自主使用工具的循环大脑（Agent）”**。两者是不同场景下的最优解！
+暂时无法在HONOR E Link文档外展示此内容
+痛点：一旦业务复杂，需要调用多个工具或者报错重试时，这里的 if-else 和 while 循环会写得极其痛苦且容易崩溃。
+2. 现在的做法：create_agent (自动挡)
+为了解决上述痛点，LangChain 升级了底层架构，引入了 LangGraph，并提供了 create_agent（或 create_react_agent）这样的高级封装。
+它在底层自动帮你画好了一个**“思考 -> 调用工具 -> 观察结果 -> 总结”的循环图**。
+暂时无法在HONOR E Link文档外展示此内容
+核心总结：为什么博客里全是 create_agent？
+通过对比就能发现，create_agent 并没有推翻 LangChain 的基础组件，它肚子里装的依然是 Model 和 Tools。
+它只是把 LCEL 时代那些繁琐的 if-else 判断、手动执行工具、以及循环重试的代码，全部封装进了一个标准化的图（Graph）结构里。
 
-### PII 检测
+- 简单代码（RAG / 检索增强）： 是开发者提前把资料准备好，**“喂”**给大模型。这是一条单向直达的高速公路，用你写的 LCEL | 语法最完美、最简单。
+- 复杂代码（Agent / 智能体）： 是开发者给大模型一堆工具，让大模型**“自己动手”**去查资料。这需要反复对话、循环试错（ReAct 理念）。在没有 create_agent 之前，用纯 LCEL 去写这种“循环”逻辑，就会出现我刚才演示的那种满篇 if-else 的痛苦代码。
 
-```python
-from langchain.agents import create_agent
-from langchain.agents.middleware import PIIMiddleware
+所以在企业级 Agent 开发的博客中，我们不再使用基础的 | 去手动拼接复杂的工具链，而是直接享受工具升级的红利，使用 create_agent 召唤一个自带“自动驾驶”能力的智能体。
+理解了这一层封装，我们再往下看 Agent 的中间件和高级玩法，就豁然开朗了！
 
-agent = create_agent(
-    model="gpt-4o",
-    tools=[],
-    middleware=[
-        PIIMiddleware("email", strategy="redact", apply_to_input=True),
-        PIIMiddleware("credit_card", strategy="mask", apply_to_input=True),
-    ],
-)
-PIIMiddleware("email", strategy="redact", apply_to_input=True)
-```
+---
+一句话：如果业务流程是固定的、不需要大模型去动态做选择或判断分支，直接用 LCEL 拼一条单向流水线就是最高效、最优雅的做法！
 
-- strategy="redact" (擦除): 这是一个“物理抹除”策略。
-  - 效果: 如果用户输入 My email is bob@example.com，发送给 AI 的内容会变成 My email is [REDACTED]。
-- apply_to_input=True: 明确作用范围。这意味着在数据离开你的服务器、发往模型之前就进行脱敏。
+---
+LangChain  2025 年 10 月 后 1.0 版本大升级
+一、 什么是 LangChain？
+- 行业地位：目前全球搞 Agent（智能体）开发最火、生态最庞大 的开源框架。
+- 重要分水岭：在 2025 年 10 月，LangChain 升级了 1.0 大版本。这是一个破坏性更新，1.0 版本和以前的 0.x 老版本在底层架构上完全是两个东西（特别是引入了 LangGraph 处理复杂工作流）。
+二、 LangChain 的七大核心组件
+无论你的 Agent 有多复杂，基本都逃不出这几个积木块：
+1. Agent（智能体）：大脑，负责思考下一步该干嘛。
+2. LLM（大语言模型）：引擎，比如 GPT-4、豆包、DeepSeek。
+3. Message（消息）：血液，在组件之间传递的对话数据。
+4. Tools（工具）：手脚，比如联网搜索、查天气、读数据库。
+5. 记忆（Memory）：让 AI 记住上下文，不至于“聊完就忘”。
+6. Stream（流式输出）：像打字机一样一个字一个字往外蹦，提升用户体验。
+7. 结构化输出：强制 AI 返回 JSON 等固定格式，方便程序解析。
 
-PIIMiddleware("credit_card", strategy="mask", apply_to_input=True)
-- "credit_card": 识别信用卡号。
-- strategy="mask" (遮掩): 这是一个“部分可见”策略。
-  - 效果: 信用卡号会变成 ************4444。这样 AI 知道这是一个卡号，但拿不到完整的真实号码。
-有时候，你的工具（Tool）可能真的需要那个真实的邮箱去发邮件。 由于中间件只作用于 Agent -> LLM 的路径，你的本地工具函数依然可以通过 state 拿到原始的、未脱敏的信息。
-总结： 这套机制实现了：把隐私留给自己的代码处理，把逻辑交给 AI 处理。
+---
+Langchain 的 Agent 消息格式拆解
+当返回一段话时，它不仅仅返回了“文字”，而是返回了一个极其丰富的数据包。
+这个数据包通常包含 HumanMessage（你发的话）和 AIMessage（AI 的回复）。
+原文中的原始数据结构如下：
+暂时无法在HONOR E Link文档外展示此内容
+以这段代码中的 AIMessage 为例，它的核心属性可以分为四大类：
+1. 基础识别属性（我是谁，我说了啥）
+- content：最核心的字段，也就是 AI 真正回复给你的文本内容（如："我是智能助手小宁..."）。
+- id：这条消息的“身份证号”（如："lc_run--019bbfcb..."），用于在复杂的链路中精准追踪。
+- additional_kwargs：额外参数，用来放一些特定大模型厂商独有的特殊数据（如：{"refusal": None}）。
 
-### 工具仿真
+2. usage_metadata（消耗统计：关乎你的钱包）
+这部分记录了本次对话消耗的 Token（算力计费单位）：
+- input_tokens / output_tokens / total_tokens：输入、输出和总消耗（如代码中的 46, 85, 131）。
+- reasoning（推理 Token）：非常关键！ 现在的深度思考模型（如 DeepSeek-R1 或豆包的思考模型）在给出答案前会在后台“碎碎念”思考很久，这部分思考过程虽然不一定显示给用户，但也是要计费的，就记录在这里（如代码中的 "reasoning": 71）。
 
-```python
-from langchain.agents import create_agent
-from langchain.agents.middleware import LLMToolEmulator
+3. response_metadata（响应详情：底层快照）
+这是模型供应商返回的原始底层信息：
+- model_provider & model_name：你用的是哪家厂商的哪个具体模型（例如 "doubao-seed-1-6-251015"）。
+- finish_reason（结束原因）：最理想的值是 "stop"，代表模型自然地说完了。如果是 length，说明字数超限被强行掐断了。
 
-agent = create_agent(
-    model="gpt-4o",
-    tools=[get_weather, search_database, send_email],
-    middleware=[
-```
+4. 工具与状态属性（Agent 自动化的关键）
+当 AI 不只是聊天，而是作为 Agent 帮干活时，这几个字段起决定性作用：
+- tool_calls：如果 AI 觉得需要调用工具（比如查天气），它不会直接回复文字，而是把要调用的工具名称和参数放在这里（代码中目前为空 []）。
+- invalid_tool_calls：记录 AI 试图调用工具但格式写错了的失败记录。
+- refusal：如果你的问题触发了安全限制，AI 拒绝回答的理由会写在这里。
 
-```python
-    ],
-)
-```
+总结：
+在开发 LangChain 应用时，我们平时只看 content 就够了；但当你需要做成本核算（看 Token）、做复杂 Agent（看 tool_calls）、或者排查 Bug（看 finish_reason） 时，这些元数据就是你最好的帮手。
 
-你正在开发前端界面，但后端的 send_email 接口还没写好，或者 search_database 权限还没申请下来。
-- 用法：挂载 LLMToolEmulator。
-- 效果：你的 Agent 表现得就像功能全开一样，你可以完整测试对话流，而不需要等待真实的接口开发。
-B. 离线演示 (Safe Demo)
-你要给客户演示一个“自动删除数据库”的 Agent，但你不敢在演示现场真的删数据。
-- 用法：模拟器会让 AI 认为删除成功了，并继续进行下一步，而你的真实数据库纹丝不动。
-C. 生成合成数据 (Synthetic Data Generation)
-你需要模拟 100 组用户和 AI 调工具的对话历史用来训练更小的模型。
-- 用法：通过模拟器，你可以极其廉价地生成大量“模拟工具调用”的对话样本，省去了真实调 API 的费用。
+---
+Agent 动态选择 LLM：拦截Request请求，替换model参数 
+为了平衡成本和效果，我们通常不会从头到尾只用一个大模型。
+比如：简单的闲聊用便宜的“基础模型”，当对话变得很长、逻辑变得复杂时，再切换成昂贵的“高级模型”。
+这段代码就是用来实现这个功能的。我为你梳理了它的核心逻辑：
+暂时无法在HONOR E Link文档外展示此内容
+1. @wrap_model_call (拦截器/中间件) 见后续生命周期钩子章节
+这个装饰器的作用就像是一个**“收费站”或“安检口”**。
+在你的代码真正把问题发送给大模型之前，它会先把请求拦截下来，交给你定义的 dynamic_model_selection 函数处理。处理完之后，再放行。
 
-### 钩子生命周期
+2. request.messages (获取上下文) 见下一章节 什么是 Request 
+这里提取了当前对话中所有的历史消息。
+代码通过 len(messages) 计算了消息的回合数。这是一种非常经典的判断标准：对话越长，往往意味着任务越复杂，越需要模型具备强大的长文本理解能力。
 
-before_agent- 代理开始前（每次调用一次）
-before_model- 每次模型调用前
-after_model- 每次模型响应后
-after_agent- 代理完成后（每次调用一次）
+动态路由逻辑 (If-Else 切换)
+- 基础模型 (basic_model)：当消息数 ≤6≤6 时，说明还在简单的开场或初步交流阶段，调用便宜、速度快的基础模型（比如豆包的 lite 版本）。
+- 高级模型 (advanced_model)：当消息数 >6>6 时，说明上下文已经很长了，基础模型可能“记不住”或者“脑子不够用”了，立刻无缝切换到参数量更大、更聪明的高级模型（比如 DeepSeek-R1 或 GPT-4）。
 
-这4个钩子的执行顺序？
-before_agent：起点。整个任务刚开始，此时 AI 还没开口，工具也还没准备。
-before_model：循环入口。AI 准备生成回复前的最后一步。
-after_model：循环出口。AI 刚说完话，在决定是否要调工具之前。
-after_agent：终点。AI 彻底交卷，任务结束。
-🚀 before_agent (执行 1 次)
-- 🌀 第一轮循环开始
-- 👉 before_model
-- 🤖 模型推理 (Model Inference)
-- 👈 after_model
-- 🛠️ 执行工具 (Tool Execution)
-- 🌀 第二轮循环开始
-- 👉 before_model
-- 🤖 模型推理 (Model Inference)
-- 👈 after_model
-- 🏁 判断任务已完成
-🏁 after_agent (执行 1 次)
+3. request.override(model=model) (狸猫换太子)
+这是最关键的一步。它把请求包裹里原本默认配置的模型，**强行替换（override）**成了你刚才通过 If-Else 选出来的模型。
+最后通过 handler(...) 把修改后的请求发出去，完成调用。
 
-### 二次确认
+这种“动态选择 LLM”的机制是企业级 Agent 开发的标配。
+它不仅能根据消息长度切换，你以后还可以根据用户身份**（VIP用户用高级模型，普通用户用基础模型）或者任务类型（写代码用代码模型，画图用画图模型）来进行动态路由，极大提升系统的灵活性和性价比。
 
-```python
-def my_tool_wrapper(tool_call, next_call):
-    if tool_call.name == "delete_database":
-```
+Request 包含哪些信息？
+起点（你调用 invoke）：
+你在代码的最外层写下类似这样的代码：
+agent.invoke({"messages": ["帮我写一段Python代码"]})
+这时候，你只提供了最基础的用户输入。
 
-```python
-        if not user_confirmed():
-```
+框架打包（生成 Request）：
+当你按下回车，底层框架接管了工作。它会像一个尽职尽责的快递打包员，把你传入的 messages，连同你在 create_agent 时配置好的默认大模型（model）、给 Agent 配备的工具箱（tools）、以及当前的系统状态（state 和 config），全部整合在一起。
+这个整合后的“超级大包裹”，就是你代码里看到的 request 对象。
 
-```python
-    return next_call(tool_call) # 只有确认了才执行下一步
-```
+1. request.messages (最常用) 这是最重要的属性，包含当前对话的完整消息列表。
+- 内容：一个包含 HumanMessage、AIMessage 等对象的列表。
+- 用途：你代码中判断 len(messages) 就是在统计这个列表的长度，以此决定对话的复杂度。
+2. request.model 这是原始打算使用的模型对象。
+- 内容：你在 create_agent(model=llm, ...) 中传入的那个 llm 对象。
+- 用途：中间件可以读取它，也可以通过 request.override(model=new_model) 来替换它。
+3. request.tools 这是 Agent 此时可以调用的工具列表。
+- 内容：你在创建 Agent 时定义的 tools 数组。
+- 用途：你可以根据请求的内容动态决定是否禁用某些工具，或者在高级模型下开启更多复杂工具。
+4. request.state 这是当前的状态字典。
+- 内容：除了消息之外的其他状态数据（例如：用户 ID、当前处理步骤、临时变量等）。
+- 用途：如果你在 invoke 时传入了除了 messages 以外的其他键值对，它们通常会出现在这里。 5.其他控制参数 (如 request.config) 包含运行时的配置信息。
+- 内容：例如 recursion_limit（递归深度限制）、configurable（可配置项）等。
 
-### 自定义中间件
+---
+LangChain Message 消息格式规范
+在 LangChain 中构建对话消息时，主要有两种格式。
+对于简单的测试，可以使用字典格式；
+但在构建复杂的生产级项目时，强烈推荐使用 LangChain 原生的 Message 类对象。
+使用 LangChain 提供的 SystemMessage、HumanMessage、AIMessage 等类来显式定义消息角色。
+暂时无法在HONOR E Link文档外展示此内容
+字典格式（OpenAI 原生风格，适合简单场景）
+直接使用包含 role 和 content 键的字典列表。
+暂时无法在HONOR E Link文档外展示此内容
 
-### return 和 break 的区别？
+---
+复杂项目用 Message 类对象？（核心优势）
+简单的 dict 字典在处理纯文本对话时没有问题，但在复杂的高级应用中会显得力不从心。使用 Message 类对象具有以下三大核心优势：
+1. 支持多模态与结构化扩展
+- 痛点：简单的 dict 很难优雅地表达复杂的嵌套结构。
+- 优势：Message 对象可以完美封装高级属性。例如，返回的 AIMessage 不仅包含文本，还可以直接携带 tool_calls（工具调用参数）、usage_metadata（Token 消耗统计），甚至可以方便地封装多模态数据（如图片、音频）。
 
-```python
-def test_break():
-    for i in range(3):
-        if i == 1:
-            print("  [break触发]")
-            break
-        print(f"  循环中: {i}")
-    print("循环结束，但我还在函数里，继续干活！")
+2. 抹平差异，保持接口一致性 (Interface Consistency)
+- 痛点：不同的底层大模型厂商，其 API 要求的参数可能不同（比如有的要求 {"role": "user"}，有的要求 {"author": "human"}）。
+- 优势：在 LangChain 业务代码层面，你永远只需要关心 HumanMessage。LangChain 底层的“适配器”会自动将其翻译为对应目标模型所需的正确格式，实现代码与底层模型的解耦。
 
-```
+3. 状态追踪与持久化
+- 优势：Message 对象自带 id 和 metadata 属性。
+- 应用场景：这在构建复杂的 LangGraph 工作流，或者需要将对话历史持久化保存到数据库（如 Redis, MongoDB）时至关重要，方便精准追踪每一条消息的来源和流转状态。
 
-#   循环中: 0
-#   [break触发]
-# 循环结束，但我还在函数里，继续干活！
+---
+LangChain 流式输出与四种核心模式
+在构建复杂的 Agent 或大模型应用时，如果等模型完全思考并执行完所有步骤再返回结果，用户体验会非常卡顿（尤其是包含多个 Tool 调用的场景）。
+流式输出（Streaming） 是降低用户感知延迟的核心技术。
+在 LangGraph / LangChain 架构中，流式输出不仅限于“打字机效果”，而是对整个 Agent 运行状态的实时透视。
+为什么需要高级的流式输出？
+传统的 llm.stream() 只能实现单纯的文本“打字机”效果。但在 Agent 场景下，我们需要知道：
+- Agent 现在走到哪个节点了？
+- 全局状态（State）发生了什么变化？
+- 工具调用的中间结果是什么？
+为此，LangGraph 在调用 .stream() 时，提供了 stream_mode 参数，包含 四种核心模式，以满足不同的业务和调试需求。
 
-```python
-from langchain.agents.middleware import after_model, hook_config, AgentState
-from langchain.messages import AIMessage
-from langgraph.runtime import Runtime
-from typing import Any
+---
+流式输出的四种核心模式 (stream_mode)
+1. stream_mode="messages" (🌟 推荐：面向终端用户的打字机效果)
+- 核心作用：专门用于捕获大模型生成的 Token 级别 的流式数据。
+- 适用场景：前端需要实现类似 ChatGPT 的实时打字机回复效果。
+- 特点：它会过滤掉繁杂的图状态流转，只把底层的 AIMessageChunk 实时抛出来。
+暂时无法在HONOR E Link文档外展示此内容
 
-@after_model
-@hook_config(can_jump_to=["end"])
-def check_for_blocked(state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
-    last_message = state["messages"][-1]
-    if "BLOCKED" in last_message.content:
-        return {
-```
+2. stream_mode="updates" (🌟 推荐：面向业务逻辑的增量状态修改)
+- 核心作用：每次某个节点（Node）执行完毕后，只返回该节点对全局状态的“增量修改”。
+- 适用场景：需要在后端监控 Agent 执行进度（例如：UI 上显示“正在搜索天气...”、“正在总结...”）。
+- 特点：数据量小，逻辑清晰，只告诉你“刚刚发生了什么改变”。
+暂时无法在HONOR E Link文档外展示此内容
 
-```python
-            "jump_to": "end"
-        }
-    return None
-```
+3. stream_mode="values" (全量状态快照)
+- 核心作用：每次节点执行完毕后，返回当前全局 State 的完整快照。
+- 适用场景：需要随时获取整个对话历史和所有上下文变量的场景。
+- 特点：数据量较大，因为它不仅包含增量，还包含之前所有的历史消息和状态。
+暂时无法在HONOR E Link文档外展示此内容
 
-'tools'立即行动goto 执行层绕过后续可能存在的模型判断，强迫系统进入工具执行节点。
-'model'重新思考continue 重新开始丢弃或修改当前状态后，让模型从头（before_model）再想一遍。
-### 守卫
+4. stream_mode="debug" (底层调试模式)
+- 核心作用：输出最底层的执行事件，包括节点进入、节点退出、边（Edge）的路由判断等。
+- 适用场景：开发阶段排查死循环、路由条件判断错误等复杂 Bug。
+- 特点：极其详细，相当于给 Agent 开启了最高级别的日志输出。
+暂时无法在HONOR E Link文档外展示此内容
 
-```python
-@hook_config
-can_jump_to: list[str] (最重要的配置)
-```
+---
+总结与最佳实践
+在实际做复杂项目时，通常会组合使用这些模式：
+1. 给前端用户看：强制使用 stream_mode="messages"，只把文本 Token 推送给 WebSocket。
+2. 给前端展示进度条/步骤：使用 stream_mode="updates"，当捕获到 node_name == "tools" 时，向前端发送“正在调用工具”的信号。
+3. 本地开发排错：直接开启 stream_mode="debug"，像用放大镜一样看清 Agent 的每一步路由决策。
 
-- 含义：声明该钩子允许跳转到的目标节点名称。
-- 默认值：空列表 []（即不允许跳转）。
-- 常用值：
-  - "end"：强制结束 Agent。
-  - "tools"：跳过思考，直接去执行工具。
-  - "model"：忽略当前输出，让模型重写。
-- 作用：如果你在代码里返回了 {"jump_to": "..."} 但没在 can_jump_to 里声明，程序会直接报错。
-is_async: bool | None
-这个配置决定了中间件的运行模式。
-- 含义：显式指定这个钩子是同步执行还是异步执行。
-- 默认值：None（框架会尝试通过 inspect.iscoroutinefunction 自动推断）。
-- 为什么要手动设为 True/False？：
-  - 在某些复杂的包装场景下（比如你用了装饰器的装饰器），Python 的自动推断可能会失效。
-  - 手动设置可以强制框架以特定方式调度任务，提高运行效率。
-apply_to_input / apply_to_output: bool (针对特定策略)
-虽然这两个参数在基础中间件中不常用，但在处理数据转换类（如 PII 脱敏或缓存）的钩子中非常关键。
-- 含义：指定中间件的逻辑是作用于“发送给模型的原始数据”还是“模型返回的结果”。
-- 场景：
-  - 如果你在写一个缓存钩子，你需要 apply_to_input=True 来根据输入生成缓存 Key。
-  - 如果你在写一个输出清理钩子，你需要 apply_to_output=True。
-apply_to_input=True：去程拦截（发给 AI 之前）
-核心逻辑：在用户的提问（或工具结果）发往大模型（LLM）之前，先过一遍中间件。
-🚀 应用场景 A：隐私脱敏 (PII Protection)
-- 需求：用户输入了“我的手机号是 13800138000”，你必须在发给 OpenAI 之前把它遮住。
-- 配置：apply_to_input=True。
-- 结果：中间件把手机号改成 [REDACTED]。AI 收到的是脱敏后的文字。
-🚀 应用场景 B：动态上下文注入 (Context Injection)
-- 需求：根据用户的问题，自动从数据库里查出他的会员等级，并塞进 Prompt。
-- 配置：apply_to_input=True。
-- 结果：中间件在输入端增加了“当前用户是金卡会员”的信息，AI 根据这个新背景进行回答。
-apply_to_output=True：回程拦截（从 AI 回来之后）
-核心逻辑：AI 已经生成了答案，但在最终显示给用户或执行工具之前，先过一遍中间件。
-🚀 应用场景 C：内容安全审计 (Safety Guardrail)
-- 需求：防止 AI 在回复中产生幻觉，说出带有歧视性或违禁的词汇。
-- 配置：apply_to_output=True。
-- 结果：如果 AI 回复了包含违禁词的内容，中间件直接截获，将其替换为“由于政策原因，我无法回答此问题”，并触发 jump_to: "end"。
-🚀 应用场景 D：输出格式化转换 (Post-Processing)
-- 需求：AI 返回了一个 JSON 字符串，你希望在显示给前端之前，把它转换成一个漂亮的 HTML 表格。
-- 配置：apply_to_output=True。
-- 结果：中间件处理 AI 的输出，完成格式转换，用户直接看到结果。
 
-### 上下文
+---
+Tools 状态传递与性能优化
+Tools 之间的状态传递方式
+在多工具 Agent 场景下，工具之间传递状态/数据主要有以下 3 种方式：
+1. LLM 自动传递：依赖大模型自身的理解，自动把前一个工具的输出作为参数传给下一个工具。
+2. 通过 Context 传递：使用 ToolRuntime[Context]。工具可以直接读取或修改全局的 Context（如 user_id），实现底层状态共享，无需 LLM 显式传参。
+3. 直接合并 Tools（性能优化）：将逻辑强关联的小工具合并成一个大工具，减少 LLM “思考-调用-返回”的循环次数。
 
-```python
-agent = create_agent(
-    model="gpt-4o",
-    tools=[save_preference],
-    context_schema=Context,
-    store=InMemoryStore()
-)
-```
+---
+工具调用性能优化（实战：耗时 28s ➡️ 9s）
+通过 3 步优化，将 Agent 整体执行耗时压缩了 3 倍以上。
+优化 1：修改系统提示词 (28s ➡️ 12s) 【核心优化点】
+思路：混合结构化与自然语言引导，明确条件分支，强制禁止输出思考过程，直接减轻模型推理负担。
+暂时无法在HONOR E Link文档外展示此内容
+优化 2：精简工具描述 (耗时维持 12s，提升准确率)
+思路：缩短 Docstring 直击要点，并明确标注参数类型，减少模型构造参数时的犹豫。
+暂时无法在HONOR E Link文档外展示此内容
+优化 3：限制 Max Tokens (12s ➡️ 9s)
+思路：在初始化 LLM 时显式设置 max_tokens，截断不必要的冗长输出，提升响应速度。
+暂时无法在HONOR E Link文档外展示此内容
 
-[图片]
+---
+调试技巧：透视 LLM 思考决策过程 (Stream 模式)
+使用 .invoke() 只能看到最终结果，是个黑盒。
+改用 .stream() 模式 可以按节点（agent 节点和 tools 节点）遍历，提取中间隐藏的思考和调用过程。
+暂时无法在HONOR E Link文档外展示此内容
+总结：在开发和调试 Agent 时，必须使用 Stream 模式配合上述解析逻辑，才能清楚知道大模型到底在想什么、调用了什么工具、传入了什么参数，从而针对性地优化 Prompt 和 Tool 描述。
 
-相同点：都是在内存中操作。
-不同点：
-context属于单次有效。（类似 在全局中写了个对象，每次调用点赋值，调用完成销毁。）
-```python
-      store属于长期存在内存中，只要服务不重启，状态就在。（类似 session Storage）
-```
+---
+LangChain InMemorySaver 与 Agent 状态 (State) ：给 Agent 装上“记忆”与查看“快照”
+在创建 Agent 时，最核心的动作是给 Agent 加上了 checkpointer=InMemorySaver()。
+你可以把 InMemorySaver 理解为给 Agent 插上了一根**“短期记忆内存条”**。
+如果没有它，Agent 就像金鱼一样，每次对话完就失忆；
+有了它，只要你提供同一个 thread_id（比如代表同一个用户），Agent 就能顺着之前的上下文继续聊。
+代码实现：
+暂时无法在HONOR E Link文档外展示此内容
+当你调用 state = agent.get_state(config) 时，你其实是按下了暂停键，
+给 Agent 当前的大脑拍了一张**“全息快照”**。这个快照里包含了四个极其重要的部分：
 
-### 父子 Agent 的调用
+1. state.values（核心业务数据）
+这是你最需要关注的地方。它就像是 Agent 的**“工作台”**，里面摆放着
+所有的对话历史（messages）、
+模型思考的过程（thought_metadata）、
+工具调用的记录以及 Token 的消耗量。
+Agent 就是看着工作台上的这些数据，来决定下一句话该说什么的。
+数据结构示例：
+暂时无法在HONOR E Link文档外展示此内容
+2. state.metadata（运行溯源信息）
+这部分记录了状态是怎么来的。比如 step: 3 清楚地告诉你，从用户输入到现在，系统已经流转了 3 步（思考 -> 调用工具 -> 总结回复）。
+source: "loop" 则说明这是框架自动循环执行产生的结果。这在排查死循环 Bug 时非常有用。
+数据结构示例：
+暂时无法在HONOR E Link文档外展示此内容
+3. state.next（流程控制指针）
+它就像是 Agent 的**“下一步计划表”**。它会告诉你接下来准备执行哪个节点（比如是继续思考 ('agent',)，还是去执行工具 ('tools',)）。如果任务已经全部完成，它就会是一个空值 ()。在需要“人工审批”的场景中，这个属性是关键。
+4. state.config（状态的身份证）
+这里面包含了 thread_id 和唯一的 checkpoint_id。
+有了这个唯一的 ID，你甚至可以实现**“时间旅行”**——让代码拿着旧的 ID，强行让 Agent 回滚到历史的某一步重新开始跑。
 
-```python
-from typing import Annotated
-from langchain.agents import AgentState
-from langchain.tools import InjectedToolCallId
-from langgraph.types import Command
+---
+Agent 的内置中间件 (Middleware)
+中间件是在 Agent 接收输入前，或输出结果后，自动执行的一系列拦截和处理机制。
+合理使用中间件，可以让 Agent 从“玩具”变成“企业级应用”。
+内存与上下文管理（解决“Token太长/太贵”问题）
+SummarizationMiddleware（上下文压缩）：写回忆录。调用小模型把用户的早期聊天记录总结成摘要，保留长期记忆的同时给大模型减负。
+ContextEditingMiddleware（上下文清除）：进碎纸机。直接在代码底层物理删除冗长的、无用的工具执行日志，零成本瞬间释放上下文空间。
 
-@tool(
-    "subagent1_name",
-    description="subagent1_description"
-)
-def call_subagent1(
-    query: str,
-    tool_call_id: Annotated[str, InjectedToolCallId],
-) -> Command:
-    result = subagent1.invoke({
-```
+SummarizationMiddleware（压缩对话上下文）
+作用：给大模型“减负”与“省钱”。
+大模型的上下文窗口有限且按 Token 收费。如果对话太长，不仅贵，还容易报错。
+这个中间件会在 Token 达到阈值时，自动用一个便宜的小模型把早期的历史记录总结成摘要，同时保留最近的几条原始消息。
+暂时无法在HONOR E Link文档外展示此内容
+ContextEditingMiddleware (清除工具上下文)
+适用场景：长时间的多轮对话中，Agent 会积累大量的“工具调用日志”，极易撑爆 Token 限制。
+核心逻辑：延迟清理策略（平时保留，快满了才删，且保留最近的记忆以防死循环）。
+暂时无法在HONOR E Link文档外展示此内容
 
-```python
-    })
-    return Command(update={
-```
+---
+稳定性与高可用（解决“网络波动/服务宕机”问题）
 
-```python
-        "example_state_key": result["example_state_key"],
-        "messages": [
-            ToolMessage(
-                content=result["messages"][-1].content,
-                tool_call_id=tool_call_id
-            )
-        ]
-    })
-    return Command(update={
-```
+ModelFallbackMiddleware（模型兜底）：主模型挂了备胎上。当主模型（如 gpt-4o）因为限流或宕机报错时，自动切换到备用模型，保障业务不中断。
+ToolRetryMiddleware（工具自动重试）：防熄火系统。当调用外部第三方 API 失败或超时时，在底层自动重新发起请求，解决外部接口不稳定的问题。
 
-```python
-        "example_state_key": result["example_state_key"],
-        "messages": [
-            ToolMe    ssage(
-                content=result["messages"][-1].content,
-                tool_call_id=tool_call_id
-            )
-        ]
-    })
-告诉mainAgent
-```
+ModelFallbackMiddleware（模型错误兜底）
+作用：保证系统的高可用性（High Availability）。
+在实际生产中，主模型（如 gpt-4o）可能会因为网络波动、API 宕机或并发限流而调用失败。这个中间件允许你配置一系列备胎模型，主模型挂了，备胎立刻顶上，用户完全无感知。
+暂时无法在HONOR E Link文档外展示此内容
+RetryMiddleware（工具自动重试）
+在调用外部 API（如数据库、天气接口）或大模型自身时，网络波动是常态。我们需要优雅的重试机制。
+工具重试 (ToolRetryMiddleware)：处理工具执行失败。
+模型重试 (ModelRetryMiddleware)：处理 LLM API 调用失败。
+暂时无法在HONOR E Link文档外展示此内容
 
-2. 返回的信息是什么
-在LLM底层，subAgent相当于是工具调用
+---
+安全与风控（解决“失控/泄密/破产”问题）
 
-## 面试题
+PIIMiddleware（隐私打码）：数据安检员。在数据发给大模型前，自动将邮箱、信用卡等敏感信息涂黑或掩码，防止企业机密和用户隐私泄露。
+ModelCallLimit / ToolCallLimit（熔断限流）：防死循环与防破产。强制设定最大思考步数或工具调用次数，一旦超过立刻停止，防止大模型发疯把 API 余额刷光。
 
-1. 如何提升系统回复的准确率？
-把参考资料放系统提示词
-1. 系统提示词权重更高
-2. 上下文太长，不会压缩
-3. 利于前缀缓存
-场景：你的整轮对话，强依赖这段“参考文本”
+PIIMiddleware（PII 检测与敏感信息屏蔽）
+作用：保护用户隐私与数据安全。
+PII (Personally Identifiable Information) 指个人身份信息。
+企业绝对不能把用户的邮箱、信用卡号等明文发给外部的大模型 API。这个中间件充当**“安检员”**，在数据发给模型前，自动打码或替换敏感词。
+暂时无法在HONOR E Link文档外展示此内容
+ModelCallLimit & ToolCallLimit（调用限制）
+作用：防止 Agent 陷入“死循环”。
+有时候模型会“发疯”，不断地重复调用某个工具，或者在思考节点无限死循环。这两个中间件就是强制熔断机制，设定最大步数，超过就强制停止。
+暂时无法在HONOR E Link文档外展示此内容
 
-2. 批量提问的作用？
-1. 降低token消耗
-2. 提升性能
+---
+路由与性能优化（解决“工具太多/大模型看花眼”问题）
+LLMToolSelectorMiddleware（工具初筛路由）：小模型当秘书。面对海量工具时，先用便宜的小模型挑出最相关的几个，再交给大模型处理，大幅提升大模型的专注度并降低成本。
 
-3. 如何优化回复质量
-利用logprobs看大模型的把握程度，优化prompt或者上下文
+LLMToolSelectorMiddleware（工具初筛路由)
+适用场景：比如一个“个人 AI 助手”，用户需求跳跃，导致你必须给 Agent 挂载几十上百个工具。
+核心痛点：把所有工具描述都塞给大模型（如 GPT-4o）会导致：
+  1. 上下文污染（Attention Loss）：模型在海量工具中迷失，产生幻觉或选错工具。
+  2. 推理延迟：Prompt 越长，首字响应时间（TTFT）越久。
+  3. 成本高昂：大模型输入 Token 极贵，每轮带上百个工具说明极不划算。
+架构理念：业内称为 "Router-Worker"（路由-执行） 或 "Small-to-Large"（小模型驱动大模型） 架构。
+暂时无法在HONOR E Link文档外展示此内容
 
-4. 性能提升方案
-利用小的模型进行tools筛选，50= > 3
-```python
-from langchain.agents import create_agent
-from langchain.agents.middleware import LLMToolSelectorMiddleware
+---
 
-agent = create_agent(
-    model="gpt-4o",
-    tools=[tool1, tool2, tool3, tool4, tool5, ...],
-    middleware=[
-        LLMToolSelectorMiddleware(
-            model="gpt-4o-mini",
-            max_tools=3,
-            always_include=["search"],
-        ),
-    ],
-)
-```
+工程化与高阶赋能（解决“开发测试/复杂任务”问题）
+LLMToolEmulator（本地 Mock 模拟）：开发测试神器。在本地模拟工具的返回结果，让开发者在不消耗真实 API 额度的情况下进行调试。
+ShellToolMiddleware / Filesystem 等（底层提权）：终极权限。直接赋予 Agent 操作系统级别的权限，让它能自己执行脚本、查阅本地文件，让 Agent 具备干复杂脏活的能力。
+
+LLMToolEmulator（本地 Mock 模拟）
+适用场景：在开发和测试阶段，不想真实消耗第三方 API 的额度（比如发邮件、扣费接口），可以使用模拟器。
+暂时无法在HONOR E Link文档外展示此内容
+
+ShellToolMiddleware / Filesystem 等（底层操作权限赋予）
+适用场景：当预设的 Tools 无法满足需求时，赋予 Agent “自己写代码、自己运行、自己查文件” 的最高权限。
+核心预警：这就是类似 Manus 等高级 Agent 的底层逻辑。只要宿主机权限够，Agent 理论上可以在 Workspace 里做任何事。
+暂时无法在HONOR E Link文档外展示此内容
+
+---
+学习建议：
+这五个中间件涵盖了 Agent 走向生产环境的必经之路：**性能（路由） -> 稳定性（重试） -> 成本（Mock/清理） -> 终极扩展（Shell）**。
+建议在实际项目中，先从 ToolRetryMiddleware 用起，感受一下自动容错的魅力！
+
+---
+Agent 生命周期 (Lifecycle) 钩子：给 Agent 装上“全景监控”与“流程护卫”
+在构建复杂的 Agent 时，仅仅让它跑起来是不够的。我们需要在它运行的各个阶段进行监控、拦截或修改。
+你可以把生命周期钩子（Hooks）理解为在 Agent 运行轨道上设置的**“安检站”与“监控探头”**。
+
+如果没有它们，Agent 就像一个黑盒，你无法控制它的中间过程；
+有了它们，你可以在 Agent 启动前拦截、在模型思考前塞入纸条、在工具执行时加上安全锁。
+
+动态提示词注入 (Dynamic Prompt)：给 Agent 戴上“实时智能手表”
+在进入具体的钩子前，最常用的一个技巧是 @dynamic_prompt。它允许我们在每次模型调用前，动态地向 System Prompt 中注入最新信息（比如当前时间、用户身份）。
+代码实现：
+暂时无法在HONOR E Link文档外展示此内容
+
+---
+
+1. before_agent (全局启动哨兵)
+运行时机： 代理开始前（每次对话仅调用一次）
+你可以把它理解为 Agent 的**“入场安检门”**。
+- 黑名单拦截： 在请求发送给模型前，先检查 UserID 是否在禁言名单中。
+- 额度预扣除： 检查用户的 Token 余额是否足够支付本次对话。
+- 上下文注入： 自动从数据库提取用户的历史偏好（如“喜欢简短回答”），提前放入初始状态。
+
+2. before_model (模型输入质检)
+运行时机： 每次模型调用前（可能会触发多次）
+你可以把它理解为给大模型递交文件前的**“打包员”**。
+- 敏感词过滤： 检查用户问题是否包含违规词，如果有，直接通过 jump_to="end" 结束并报错。
+- Prompt 注入： 实时获取系统负载，告诉模型：“当前系统繁忙，请简短回答”。
+- 上下文裁减： 如果对话轮数过多，手动删掉最早的消息，防止超出模型最大输入长度（Context Window）。
+
+3. after_model (模型输出审计)
+运行时机： 每次模型响应后（可能会触发多次）
+你可以把它理解为模型输出结果的**“内容审核员”**。
+- 工具调用日志： 实时记录模型打算调用哪个工具及参数，用于后台分析决策逻辑。
+- 响应脱敏： 检查模型是否意外泄露了系统密钥或密码，在显示给用户前打码。
+- 强制格式化： 如果模型应该返回 JSON 但格式有微小错误，在这里进行尝试性的字符串修复。
+
+4. wrap_model_call (模型调用全生命周期)
+运行时机： 围绕每个模型调用（包裹整个请求过程）
+你可以把它理解为套在模型 API 外层的**“防弹衣与计价器”**。
+- 耗时统计： 记录模型从发送请求到返回响应的精确时间。
+- 自动重试： 如果 API 报 500 错误或触发频率限制，在钩子内自动进行 3 次指数退避重试，对业务层完全透明。
+- 成本计算： 获取响应中的 usage 字段，计算本次调用的精确 Token 费用并存入数据库。
+
+5. wrap_tool_call (工具执行保护伞)
+运行时机： 围绕每个工具调用（包裹工具执行过程）
+你可以把它理解为危险工具的**“沙箱安全员”**。
+- 二次确认： 如果模型尝试调用 delete_user 工具，拦截执行并返回：“由于操作敏感，请联系人工处理”。
+- 超时控制： 给耗时较长的工具（如爬虫）设置硬超时，防止工具运行过久导致 Agent 挂起。
+- 模拟/ Mock： 在测试环境下，不真正执行昂贵的 API，而是通过钩子直接返回预设的 Mock 数据。
+
+6. after_agent (最终交付质检)
+运行时机： 代理完成后（每次对话仅调用一次）
+你可以把它理解为整个流程结束后的**“收尾大管家”**。
+- 归档存储： 任务结束后，将完整的对话记录（包括所有中间思考过程）保存到向量数据库或日志系统中。
+- 最终通知： 任务完成后，自动给开发者发送 Webhook 通知（如“订单处理 Agent 已完成操作”）。
+- 交互优化： 检查 Agent 最终的回复，如果为空或由于异常中断，将其替换为更友好的兜底提示语：“对不起，我遇到了一点问题，请稍后再试”。
+暂时无法在HONOR E Link文档外展示此内容
+
+---
+Langchain 使用 MCP 服务 (Model Context Protocol)：给 AI 打造“通用共享工具箱”
+在传统的 Agent 开发中，工具（Tools）通常是和 Agent 绑死在一起的。
+你可以把 MCP (Model Context Protocol) 理解为一种**“工具外包”或“共享工具箱”**机制。
+它的核心思想是：把 Tools 换个地方单独定义并作为服务运行。 
+这样一来，无论是哪个大模型（Claude、GPT、还是你自己写的 Agent），只要接入了这个 MCP 服务，就能直接调用里面的工具。
+
+核心通信机制
+MCP 底层使用的是标准的 JSON-RPC 2.0 协议进行对话。
+它支持两种主流的通信方式：
+1. STDIO (标准输入输出)：适用于本地调用（就像把工具箱放在自己电脑桌底下）。
+2. HTTP / SSE (Server-Sent Events)：适用于远程调用（就像把工具箱放在云端服务器上）。
+
+---
+第一步：创建一个 MCP 服务端 (造一个工具箱)
+使用 FastMCP 可以极快地把普通的 Python 函数包装成 MCP 服务。
+
+调试小技巧：
+安装 Node.js 后，可以通过 npx @modelcontextprotocol/inspector python "你的文件".py 启动可视化面板来测试你的工具。
+暂时无法在HONOR E Link文档外展示此内容
+
+---
+第二步：客户端调用 MCP 服务 (两种场景)
+场景 A：本地调用 (STDIO 模式)
+适用场景： 工具脚本和 Agent 代码在同一台机器上运行。
+核心优势： MultiServerMCPClient 可以一行代码替代所有繁琐的进程和 Session 管理。
+在客户端代码中确实不需要声明 MyWeatherService 这个名字。是通过文件名来找到本地注册的mcp
+暂时无法在HONOR E Link文档外展示此内容
+场景 B：远程调用 (HTTP / SSE 模式)
+适用场景： 工具部署在独立的服务器上，Agent 通过网络去调用。
+核心流程： 建立 SSE 连接 -> 初始化 Session -> 加载工具。
+
+
+---
+总结对比：STDIO vs SSE
+暂时无法在HONOR E Link文档外展示此内容
+
+---
+父子 Agent 的调用机制与逻辑
+在复杂的项目中，单一 Agent 往往无法处理所有任务，需要引入“父子 Agent（多智能体）”架构。
+核心概念：在 LLM 底层，子 Agent 就是一个“工具”
+在主 Agent（Main Agent）的视角里，根本不存在所谓的“子 Agent”，它只看到了一个普通的 Tool。
+1. 主 Agent 的决策：当用户提出复杂需求时，主 Agent 的 LLM 会根据工具描述（subagent1_description），决定调用名为 subagent1_name 的工具。
+2. 黑盒执行：主 Agent 将参数（如 query）传给这个工具。至于这个工具内部是跑了一段 Python 脚本，还是唤醒了另一个拥有完整思考能力的子 Agent，主 Agent 完全不关心。
+3. 等待结果：主 Agent 停下来，等待这个“工具”返回执行结果。
+
+---
+代码解析：如何将子 Agent 包装成工具？
+为了让主 Agent 能够调用子 Agent，
+我们需要用 @tool 装饰器将子 Agent 的调用过程封装起来，并通过 Command 对象返回结果。
+暂时无法在HONOR E Link文档外展示此内容
+
+---
+返回的信息给主 Agent 
+要让主 Agent 能够完美接收子 Agent 通过 Command(update={...}) 传回来的数据，主 Agent 需要做三件事：定义包含该变量的 State、绑定工具、构建执行图。
+暂时无法在HONOR E Link文档外展示此内容
+常见问题
+如何提升系统回复的准确率？
+核心方法：把参考资料放在系统提示词（System Prompt）中。
+优势与原因：
+  1. 系统提示词权重更高，大模型会更严格地遵循。
+  2. 当上下文太长时，系统提示词不会被压缩或遗忘。
+  3. 利于前缀缓存（Prompt Caching），能加快响应速度并降低成本。
+适用场景：你的整轮对话，强依赖这段“参考文本”。
+批量提问的作用是什么？
+核心作用：降低 Token 消耗，并且能够提升系统整体性能。
+如何进一步优化回复质量？
+核心方法：利用 logprobs（对数概率）来观察大模型生成内容的把握程度（置信度），
+根据这些底层数据来针对性地优化 Prompt 或者补充上下文。
+有什么具体的性能提升方案（针对多工具场景）？
+核心方案：中间件利用小模型进行 Tools（工具）的初步筛选。例如，原本有 50 个工具，先用速度快、成本低的小模型筛选出最相关的 3 个，再交给大模型处理（即 50 => 3）。
+暂时无法在HONOR E Link文档外展示此内容
