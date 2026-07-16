@@ -784,3 +784,72 @@ Store - “全局的知识库与记忆”，全局指的是单次使用，多会
 开发环境 (InMemoryStore)：就像办公室里的公共白板。只要公司（服务器）还在开门营业，所有员工（不同 Thread）都能看到白板上的全局规则（共用）；但晚上下班关灯（重启），保洁阿姨就会把白板擦干净（数据丢失）。
 生产环境 (PostgresStore 等)：就像办公室里的公共档案柜。不仅所有员工都能随时查阅（共用），而且文件锁在柜子里，无论公司关门多少次，第二天来数据依然在（持久化），真正实现跨会话的长期记忆！
 
+---
+一级标题-子图 (Subgraph) 
+三级标题-什么是子图 (Subgraph)？
+在 LangGraph 中，子图 (Subgraph) 本质上就是一个完整的、可以独立运行的 StateGraph（状态图），但它被当作一个普通的节点 (Node) 嵌入到了另一个更大的“父图 (Parent Graph)”中。
+你可以把它理解为编程中的**“函数调用”或者“模块化设计”。
+父图不需要知道子图内部有多少个节点、逻辑有多复杂，父图只需要把数据传给子图，等子图运行完毕后，再把结果拿回来即可。
+在这个过程中，最核心的动作是状态转换 (State Transformation)**，即父图的状态变量和子图的状态变量之间的映射与隔离。
+
+---
+三级标题-代码demo解析
+下面是你提供的源码，我为你添加了详细的注释，帮助你理解父图和子图是如何通过状态映射连接在一起的：
+from typing_extensions import TypedDict
+from langgraph.graph.state import StateGraph, START
+
+# ==========================================
+# 第一部分：定义子图 (Subgraph)
+# ==========================================
+
+# 1. 定义子图专属的状态 (State)
+class SubgraphState(TypedDict):
+    bar: str
+
+# 2. 定义子图中的节点逻辑
+def subgraph_node_1(state: SubgraphState):
+    # 子图只认识 "bar" 这个变量
+    return {"bar": "hi! " + state["bar"]}
+
+# 3. 构建并编译子图
+subgraph_builder = StateGraph(SubgraphState)
+subgraph_builder.add_node(subgraph_node_1)
+subgraph_builder.add_edge(START, "subgraph_node_1")
+subgraph = subgraph_builder.compile()
+
+
+# ==========================================
+# 第二部分：定义父图 (Parent graph)
+# ==========================================
+
+# 1. 定义父图专属的状态 (State)
+class State(TypedDict):
+    foo: str
+
+# 2. 定义父图中调用子图的节点逻辑（核心：状态映射）
+def call_subgraph(state: State):
+    # 步骤 A：将父图的状态 (foo) 转换为子图需要的状态 (bar)
+    # 相当于给子图传入参数
+    subgraph_output = subgraph.invoke({"bar": state["foo"]})  
+    
+    # 步骤 B：将子图的输出结果 (bar) 转换回父图认识的状态 (foo)
+    # 相当于接收子图的返回值
+    return {"foo": subgraph_output["bar"]}
+
+# 3. 构建并编译父图
+builder = StateGraph(State)
+# 将 call_subgraph 作为一个普通节点添加到父图中
+builder.add_node("node_1", call_subgraph)
+builder.add_edge(START, "node_1")
+graph = builder.compile()
+
+这段代码完美展示了状态隔离。父图的变量叫 foo，子图的变量叫 bar。
+它们互不干扰，通过 call_subgraph 这个“桥梁节点”完成了数据的输入映射和输出映射。
+
+---
+三级标题-什么时候使用子图？(应用场景)
+在实际的 AI Agent 开发中，如果你遇到以下情况，就应该果断使用子图：
+1. 复杂逻辑拆解 (模块化) 当你的 Agent 流程变得极其庞大（比如有 20 个以上的节点）时，整个图会变得难以维护。你可以将特定功能的节点组装成子图。例如，将“信息检索”、“数据清洗”、“总结输出”分别做成三个子图，父图只负责按顺序调用它们。这能极大提升代码的可读性和可维护性。
+2. 状态隔离 (State Isolation) 就像源码中展示的那样，有时候某个子任务需要记录很多中间变量（比如重试次数、临时抓取的网页内容等），但父图根本不需要关心这些细节。使用子图可以防止状态污染，让父图的状态保持干净整洁。
+3. 多智能体协作 (Multi-Agent Systems) 在构建多 Agent 系统时，子图是绝佳的工具。你可以让一个子图扮演**“研究员 Agent”，另一个子图扮演“程序员 Agent”。父图则作为“主管 Agent”**，负责将任务分发给不同的子图（员工）去执行，最后汇总结果。
+4. 团队协作与代码复用 (Reusability) 如果你们团队有多个项目都需要用到“联网搜索并总结”的功能，你们可以把这个功能封装成一个标准的子图。其他项目（父图）只需要直接 invoke 这个子图即可，实现了代码的高度复用。
