@@ -1,68 +1,81 @@
-代码仓库
-https://gitee.com/mood6666/deep_agent
+一级标题-什么是Deep Agent？- 一类开源的、高级脚手架
+如果你已经掌握了 LangChain 或 LangGraph，并且在尝试构建复杂智能体时感到疲惫——比如手动写 Planner、自己折腾长文本摘要、费力隔离 Subgraph 的上下文……那么，Deep Agent 就是为你准备的。
+1. 谁提出了这个概念？
+这里的 Deep Agent 并非某个高不可攀的学术新理论，
+而是开源社区（如 mood6666 的代码仓库）面向开发者总结并封装出的一套实战型智能体模板（Agent Harness / 外壳）。
 
+2. 它究竟是什么？（一句话定位）
+Deep Agent 不是新的运行时（Runtime），也不是新的协议，它是一个“预装了固定套路”的 Agent 模板。
+它底层跑的依然是 LangGraph 的图，用的也还是 LangChain 的工具调用循环。
+它的核心价值在于：把 Claude Code、Manus、Deep Research 等顶尖 AI 产品中已经被验证过的成功经验，默认打包交给了你。
 
-create_agent 给你一个干净的 ReAct，工具完全由你提供。
-create_deep_agent 在 create_agent 之上自动注入了一组中间件（middleware）：
-- TodoListMiddleware → 注入 write_todos 工具
-- FilesystemMiddleware → 注入 ls / read_file / write_file / edit_file / glob / grep
-- SubAgentMiddleware → 注入 task 工具，可以调用其他 agent
-- SummarizationMiddleware → 上下文太长时自动总结
-- 默认 system prompt → 教会模型"先 plan、再做、写文件管理上下文、复杂任务派子代理"
-所以一句更准确的话：
-create_deep_agent ≈ create_agent + 一组 opinionated 的内置中间件 + 一份精心调过的 system prompt。
+3. 它的核心作用是什么？
+它的作用是帮你省去大量重复造轮子的时间。它通过内置一系列强大的中间件和工具，直接解决了开发者在构建复杂 Agent 时的核心痛点：
+内置能力                 对应工具               以前需要你自己实现的痛点
+规划 / 待办write_todos自己写 planner 节点
+虚拟文件系统ls / read_file / write_file 等长上下文塞不下、要自己做摘要
+子代理task自己用 Send / Subgraph 隔离 context
+Shell 执行execute自己接 e2b / docker
+长期记忆LangGraph Store自己接 vector store
+人审interrupt_on 包装自己写 HITL (Human-in-the-loop)
 
+---
+一级标题-什么是 Deep Agent？（工程架构视角）
+从代码实现来看，Deep Agent 并不是一个全新的底层协议，而是一个被高度武装的 ReAct 智能体脚手架。
+可以用一个公式来准确定义它：
+create_deep_agent ≈ 
+create_agent（干净的 ReAct） + 
+一组强主张的内置中间件（Middleware） +
+ 一份精心调优的 System Prompt。
+它通过中间件为 LLM 注入了四大核心能力：
+1. TodoListMiddleware：注入 write_todos 工具，教模型**“先 Plan，再执行”**。
+2. FilesystemMiddleware：注入虚拟文件系统（ls/read/write/grep），让模型学会用文件管理上下文。
+3. SubAgentMiddleware：注入 task 工具，遇到复杂任务自动派发给子代理。
+4. SummarizationMiddleware：作为兜底，在上下文太长时自动总结历史记录。
 
-Deep agent通过fs读写，长文最后不也要喂给 LLM 吗？省了什么？
-区别 1：deepagent 自带"工具结果自动 offload"机制（隐形大杀器）
+---
+一级标题-核心思想一：超长文本如何处理？（以 10 万字对比为例）
+1. 绕不开的物理事实
+LLM 真正做对比的那一刻，被对比的内容必须出现在 Prompt 里。这是 Transformer 的工作机制决定的，它看不到“硬盘上的文件”。
+因此，虚拟文件系统（FS）没有任何“魔法压缩算法”，它的本质是把“截取哪一段”的决定权交给 LLM 自己。
 
-10w字的上下文fs如何处理？
-Q3：对比两段长文时，是不是都得塞进 context？1w / 10w 怎么处理？是"压缩"吗？
-先抛一个绕不开的物理事实：
-LLM 真正做对比的那一刻，被对比的内容必须出现在 prompt 里。这是 transformer 的工作机制——它只能看 context window 里的 token，看不到"硬盘上的文件"。
-所以虚拟 FS 不是"压缩"，也不是"魔法替换"。它实际做的事是：
-让长内容只占用一次 context（写入文件那一刻），后续轮次需要时按需取片段回到 context。
-"压缩"在 LLM 世界里只有两种真实形态：摘要（少而粗）或 截断（少而准）。FS 工具本质是把"截取哪一段"的决定权交给 LLM 自己。
-三档体量的实际策略
-暂时无法在飞书文档外展示此内容
-误区：不是"超过某个字数就要走 FS"，而是"占用 context 的代价 vs. 多几轮工具调用的代价"权衡。1w 字塞一次比"写文件再读两次"还便宜。
-1w 字 × 2 的推荐做法（直接对比）
-轮 1 user:  "请对比 A 和 B：\n[A 的 1w 字]\n---\n[B 的 1w 字]\n输出三维度对比表"
-轮 2 LLM:   直接输出对比表
-完事。如果你强行走 FS，反而会变成 fetch → write → fetch → write → read → read → 对比，比直接塞还多耗 token。这就是 demo02 里 LLM 干脆没调 read_file 的原因。
-10w 字 × 2 才是 FS / Subagent 真正发光的场景
-此时根本塞不下（即使能塞，注意力机制对 50k+ token 的"逐字对比"也很糟糕）。正确流程必须先把"对比"这个动作拆开：
-方案一：维度抽取 + 局部合成（最常用）
-0. user: "对比 A 和 B 的 [定位 / 抽象层级 / 适用场景]"
+2. 核心误区：超过一定字数就要走 FS 吗？
+错。核心是权衡**“占用 Context 的代价” vs “多几轮工具调用的代价”**。
+1. 1万字级别——直接塞进 Context        
+1万字直接塞的成本，远比“写文件 -> 读文件 -> 再读文件”的 Token 消耗更低。
+FS 不是用来“显得专业”的，能直接塞就直接塞。
 
-1. fetch(A) → 10w 字 → 自动 evict 到 /tool_results/A   ← 路径 A 触发！
-              ToolMessage 在 messages 里只剩预览+引用
+2. 10万字级别——必须拆解（走 FS 或 Subagent）
+根本塞不下，且注意力机制对 50k+ Token 的“逐字对比”效果极差。
 
-2. fetch(B) → 10w 字 → 同上 evict 到 /tool_results/B
+3. 10 万字对比的工程解法：维度抽取 + 局部合成
+Deep Agent 自带**“工具结果自动 offload（卸载）”**的隐形大杀器。
+- Step 1： 将 10 万字长文抓取并自动写入虚拟路径（如 /tool_results/A），此时主 Context 里只留下极短的引用路径。
+- Step 2： LLM 不使用 read_file（避免撑爆），而是使用 grep 工具。
+- Step 3： LLM 通过 grep("定位|核心") 在两份长文中搜索关键词，各自只返回 5~10 行关键片段。
+- Step 4： LLM 拿着这几十行片段，在主 Context 中合成对比结果。 💡
 
-3. LLM 用 grep 而不是 read_file：
-   grep("/tool_results/A", "定位|核心|介绍") → 只回 5~10 行
-   grep("/tool_results/B", "定位|核心|介绍") → 只回 5~10 行
-   → 合成"定位"这一维度的对比
+核心 Trick： 把“对比 10w vs 10w”拆成“搜同一组关键词得到几十行片段，再对比这几十行”。
+将 10 万字浓缩成 < 500 字进 Context 做对比，这才是真正的“省”。
 
-4. 重复 step 3 处理其他维度
+deep_agent 的关系： deep_agent 的代码里内置了一个叫 FilesystemMiddleware（文件系统中间件）。
+  - 当你用 deep_agent 写程序时，它会自动给大模型提供 read_file、write_file、grep 这些工具。
+  - 它还会自动把特别长的内容存到虚拟路径里（也就是博客里说的“自动 offload”），不让长文本进入大模型的聊天记录。你不需要自己写一行处理长文本的底层代码。
 
-5. 输出总表
-核心 trick：把"对比 10w vs 10w"拆成"在两份长文里搜同一组关键词，得到几十行片段，再对比这几十行"。10w 字浓缩成 < 500 字进 context 做对比，这才是真正的"省"。
-方案二：Subagent 隔离 context（更彻底，见 demo04）
-主 agent:  "对比 A 和 B"
-  ↓ delegate
-子 agent 1: 在自己的 context 里 read /docs/A.md 全文 → 输出"A 的三维度摘要"（500 字）
-子 agent 2: 在自己的 context 里 read /docs/B.md 全文 → 输出"B 的三维度摘要"（500 字）
-  ↓ return（只把摘要回主 agent）
-主 agent:   拿着两份 500 字摘要做对比
-子 agent 用完即弃，10w 字只污染了子 agent 的 context，完全没进主 agent 的 context。
-方案三：SummarizationMiddleware 兜底
-如果你既没拆 subagent、也没主动 grep，messages 不断膨胀超过阈值，SummarizationMiddleware 会在后台把早期对话历史压成摘要。注意它压的是 整段对话历史，是 有损 的（多调一次 LLM 做摘要），是 兜底——首选还是从源头别让长内容进 context。
-几把刀的总览
-暂时无法在飞书文档外展示此内容
-一句话总结
-- 能直接塞就直接塞（500 字、1w 字都属于这档）——FS 不是用来"显得专业"的
-- 对比 10w 字的关键不是"压缩文件"，而是"压缩对比的中间产物"——用 grep 拿片段、用 subagent 在隔离 context 里出摘要
-- 虚拟 FS 没有任何"压缩算法"，它只是把"什么时候、看多少"的决定权交给 LLM 自己用文件工具去管理
-- 真正的"压缩"只发生在两个地方：SubAgent 返回摘要时、SummarizationMiddleware 压历史时——本质上都是再调一次 LLM 来写更短的版本
+---
+一级标题-核心思想二：复杂任务拆解与上下文隔离
+当任务极度复杂或文本量大到 grep 也不好使时，就需要用到 Subagent（子代理）机制。
+终极解法：Subagent 隔离 Context
+- 主 Agent 派发任务： 主 Agent 收到“对比 A 和 B”的指令后，不自己读文章，而是向下 delegate（委派）。
+- 子 Agent 独立工作： 子 Agent 1 在自己独立的 Context 里读取 A 的全文，输出 500 字摘要；子 Agent 2 同理处理 B。
+- 结果回收： 子 Agent 只把 500 字摘要返回给主 Agent，主 Agent 拿着两份摘要做最终对比。
+
+核心优势： 子 Agent 用完即弃，10 万字的冗余信息只污染了子 Agent 的 Context，完全没有进入主 Agent 的 Context，保证了主控大脑的清醒。
+
+deep_agent 的关系： deep_agent 的代码里内置了一个叫 SubAgentMiddleware（子代理中间件）。
+  - 它自动给大模型注入了一个叫 task 的工具。
+  - 当大模型觉得任务太复杂时，它自己调用 task 工具，deep_agent 的底层代码就会自动帮你拉起一个新的大模型进程（子代理）去干活，干完后再把结果拿回来。
+
+兜底方案：SummarizationMiddleware
+如果既没用 Subagent，也没用 grep，导致对话历史不断膨胀超过阈值，系统会在后台把早期对话历史压成摘要。
+注意： 这种压缩是有损的（压榨整段历史），且需要多调一次 LLM，它只是最后的兜底防线，首选策略依然是“从源头别让长内容进 Context”。
