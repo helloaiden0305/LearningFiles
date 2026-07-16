@@ -1,0 +1,68 @@
+代码仓库
+https://gitee.com/mood6666/deep_agent
+
+
+create_agent 给你一个干净的 ReAct，工具完全由你提供。
+create_deep_agent 在 create_agent 之上自动注入了一组中间件（middleware）：
+- TodoListMiddleware → 注入 write_todos 工具
+- FilesystemMiddleware → 注入 ls / read_file / write_file / edit_file / glob / grep
+- SubAgentMiddleware → 注入 task 工具，可以调用其他 agent
+- SummarizationMiddleware → 上下文太长时自动总结
+- 默认 system prompt → 教会模型"先 plan、再做、写文件管理上下文、复杂任务派子代理"
+所以一句更准确的话：
+create_deep_agent ≈ create_agent + 一组 opinionated 的内置中间件 + 一份精心调过的 system prompt。
+
+
+Deep agent通过fs读写，长文最后不也要喂给 LLM 吗？省了什么？
+区别 1：deepagent 自带"工具结果自动 offload"机制（隐形大杀器）
+
+10w字的上下文fs如何处理？
+Q3：对比两段长文时，是不是都得塞进 context？1w / 10w 怎么处理？是"压缩"吗？
+先抛一个绕不开的物理事实：
+LLM 真正做对比的那一刻，被对比的内容必须出现在 prompt 里。这是 transformer 的工作机制——它只能看 context window 里的 token，看不到"硬盘上的文件"。
+所以虚拟 FS 不是"压缩"，也不是"魔法替换"。它实际做的事是：
+让长内容只占用一次 context（写入文件那一刻），后续轮次需要时按需取片段回到 context。
+"压缩"在 LLM 世界里只有两种真实形态：摘要（少而粗）或 截断（少而准）。FS 工具本质是把"截取哪一段"的决定权交给 LLM 自己。
+三档体量的实际策略
+暂时无法在飞书文档外展示此内容
+误区：不是"超过某个字数就要走 FS"，而是"占用 context 的代价 vs. 多几轮工具调用的代价"权衡。1w 字塞一次比"写文件再读两次"还便宜。
+1w 字 × 2 的推荐做法（直接对比）
+轮 1 user:  "请对比 A 和 B：\n[A 的 1w 字]\n---\n[B 的 1w 字]\n输出三维度对比表"
+轮 2 LLM:   直接输出对比表
+完事。如果你强行走 FS，反而会变成 fetch → write → fetch → write → read → read → 对比，比直接塞还多耗 token。这就是 demo02 里 LLM 干脆没调 read_file 的原因。
+10w 字 × 2 才是 FS / Subagent 真正发光的场景
+此时根本塞不下（即使能塞，注意力机制对 50k+ token 的"逐字对比"也很糟糕）。正确流程必须先把"对比"这个动作拆开：
+方案一：维度抽取 + 局部合成（最常用）
+0. user: "对比 A 和 B 的 [定位 / 抽象层级 / 适用场景]"
+
+1. fetch(A) → 10w 字 → 自动 evict 到 /tool_results/A   ← 路径 A 触发！
+              ToolMessage 在 messages 里只剩预览+引用
+
+2. fetch(B) → 10w 字 → 同上 evict 到 /tool_results/B
+
+3. LLM 用 grep 而不是 read_file：
+   grep("/tool_results/A", "定位|核心|介绍") → 只回 5~10 行
+   grep("/tool_results/B", "定位|核心|介绍") → 只回 5~10 行
+   → 合成"定位"这一维度的对比
+
+4. 重复 step 3 处理其他维度
+
+5. 输出总表
+核心 trick：把"对比 10w vs 10w"拆成"在两份长文里搜同一组关键词，得到几十行片段，再对比这几十行"。10w 字浓缩成 < 500 字进 context 做对比，这才是真正的"省"。
+方案二：Subagent 隔离 context（更彻底，见 demo04）
+主 agent:  "对比 A 和 B"
+  ↓ delegate
+子 agent 1: 在自己的 context 里 read /docs/A.md 全文 → 输出"A 的三维度摘要"（500 字）
+子 agent 2: 在自己的 context 里 read /docs/B.md 全文 → 输出"B 的三维度摘要"（500 字）
+  ↓ return（只把摘要回主 agent）
+主 agent:   拿着两份 500 字摘要做对比
+子 agent 用完即弃，10w 字只污染了子 agent 的 context，完全没进主 agent 的 context。
+方案三：SummarizationMiddleware 兜底
+如果你既没拆 subagent、也没主动 grep，messages 不断膨胀超过阈值，SummarizationMiddleware 会在后台把早期对话历史压成摘要。注意它压的是 整段对话历史，是 有损 的（多调一次 LLM 做摘要），是 兜底——首选还是从源头别让长内容进 context。
+几把刀的总览
+暂时无法在飞书文档外展示此内容
+一句话总结
+- 能直接塞就直接塞（500 字、1w 字都属于这档）——FS 不是用来"显得专业"的
+- 对比 10w 字的关键不是"压缩文件"，而是"压缩对比的中间产物"——用 grep 拿片段、用 subagent 在隔离 context 里出摘要
+- 虚拟 FS 没有任何"压缩算法"，它只是把"什么时候、看多少"的决定权交给 LLM 自己用文件工具去管理
+- 真正的"压缩"只发生在两个地方：SubAgent 返回摘要时、SummarizationMiddleware 压历史时——本质上都是再调一次 LLM 来写更短的版本
