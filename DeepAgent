@@ -1,3 +1,4 @@
+https://gitee.com/mood6666/deep_agent/blob/master/docs/00_概念地图.md
 一级标题-什么是Deep Agent？- 开源的、高级脚手架
 如果你已经掌握了 LangChain 或 LangGraph，并且在尝试构建复杂智能体时感到疲惫——比如手动写 Planner、自己折腾长文本摘要、费力隔离 Subgraph 的上下文……那么，Deep Agent 就是为你准备的。
 1. 它究竟是什么？（一句话定位）
