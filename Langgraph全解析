@@ -1,0 +1,858 @@
+官网
+https://docs.langchain.com/oss/python/langgraph/overview
+
+代码仓库
+https://gitee.com/mood6666/lang-graph2.0
+安装环境
+pip install -U langgraph
+
+Hello world
+[图片]
+
+"""
+LangGraph 1.0+ 基础教程 - 02.py
+演示如何使用真实的 LLM 构建图
+"""
+
+import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, MessagesState, START, END
+
+# 加载 .env 文件
+load_dotenv()
+
+# 从 main.py 移植过来的 LLM 配置
+api_key = os.environ.get("ARK_API_KEY")
+llm = ChatOpenAI(
+    model="doubao-seed-1-8-251228",
+    temperature=0,
+    api_key=api_key,
+    base_url="https://ark.cn-beijing.volces.com/api/v3",
+)
+
+def call_llm(state: MessagesState):
+    """调用 LLM 的节点"""
+    messages = state["messages"]
+    response = llm.invoke(messages)
+    return {"messages": [response]}
+
+def main():
+    # 1. 创建 StateGraph，使用 MessagesState 作为状态类型
+    graph = StateGraph(MessagesState)
+
+    # 2. 添加节点（使用真实 LLM）
+    graph.add_node("call_llm", call_llm)
+
+    # 3. 添加边：START -> call_llm -> END
+    graph.add_edge(START, "call_llm")
+    graph.add_edge("call_llm", END)
+
+    # 4. 编译图
+    compiled_graph = graph.compile()
+
+    # 5. 调用图
+    result = compiled_graph.invoke({"messages": [{"role": "user", "content": "你好，请介绍一下你自己"}]})
+
+    print("=== LangGraph 调用结果 ===")
+    print(result)
+    print("\n=== 消息内容 ===")
+    for msg in result["messages"]:
+        # langGraph 1.0+ 返回的是 Message 对象，有 type 和 content 属性
+        print(f"{msg.type}: {msg.content}")
+
+if __name__ == "__main__":
+    main()
+
+
+工具调用
+[图片]
+
+"""
+LangGraph 1.0+ 教程 - 02.py
+官网 Agent 案例 + 01.py 的 LLM 配置
+"""
+
+import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langchain.tools import tool
+from langgraph.graph import StateGraph, START, END
+from langchain.messages import AnyMessage, SystemMessage, ToolMessage, HumanMessage
+from typing_extensions import TypedDict, Annotated
+import operator
+from typing import Literal
+
+# 加载 .env 文件
+load_dotenv()
+
+# ============================================================
+# Step 1: 定义 LLM（使用 01.py 的配置）
+# ============================================================
+api_key = os.environ.get("ARK_API_KEY")
+llm = ChatOpenAI(
+    model="doubao-seed-1-8-251228",
+    temperature=0,
+    api_key=api_key,
+    base_url="https://ark.cn-beijing.volces.com/api/v3",
+)
+
+# ============================================================
+# Step 2: 定义工具
+# ============================================================
+@tool
+def multiply(a: int, b: int) -> int:
+    """Multiply `a` and `b`.
+
+    Args:
+        a: First int
+        b: Second int
+    """
+    return a * b
+
+@tool
+def add(a: int, b: int) -> int:
+    """Adds `a` and `b`.
+
+    Args:
+        a: First int
+        b: Second int
+    """
+    return a + b
+
+@tool
+def divide(a: int, b: int) -> float:
+    """Divide `a` and `b`.
+
+    Args:
+        a: First int
+        b: Second int
+    """
+    return a / b
+
+# 绑定工具到 LLM
+tools = [add, multiply, divide]
+tools_by_name = {tool.name: tool for tool in tools}
+model_with_tools = llm.bind_tools(tools)
+
+# ============================================================
+# Step 3: 定义状态
+# ============================================================
+class MessagesState(TypedDict):
+    messages: Annotated[list[AnyMessage], operator.add]
+    llm_calls: int
+
+# ============================================================
+# Step 4: 定义节点
+# ============================================================
+def llm_call(state: MessagesState):
+    """LLM 决定是否调用工具"""
+    return {
+        "messages": [
+            model_with_tools.invoke(
+                [
+                    SystemMessage(
+                        content="你是一个有用的助手，负责对一组输入进行算术运算。"
+                    )
+                ]
+                + state["messages"]
+            )
+        ],
+        "llm_calls": state.get("llm_calls", 0) + 1,
+    }
+
+def tool_node(state: MessagesState):
+    """执行工具调用"""
+    result = []
+    for tool_call in state["messages"][-1].tool_calls:
+        tool = tools_by_name[tool_call["name"]]
+        observation = tool.invoke(tool_call["args"])
+        result.append(ToolMessage(content=observation, tool_call_id=tool_call["id"]))
+    return {"messages": result}
+
+# ============================================================
+# Step 5: 定义条件判断
+# ============================================================
+def should_continue(state: MessagesState) -> Literal["tool_node", END]:
+    """根据 LLM 是否调用工具来决定下一步"""
+    messages = state["messages"]
+    last_message = messages[-1]
+
+    # 如果 LLM 调用了工具，执行工具
+    if last_message.tool_calls:
+        return "tool_node"
+
+    # 否则结束（回复用户）
+    return END
+
+# ============================================================
+# Step 6: 构建图
+# ============================================================
+def main():
+    # 构建工作流
+    agent_builder = StateGraph(MessagesState)
+
+    # 添加节点
+    agent_builder.add_node("llm_call", llm_call)
+    agent_builder.add_node("tool_node", tool_node)
+
+    # 添加边
+    agent_builder.add_edge(START, "llm_call")
+    agent_builder.add_conditional_edges(
+        "llm_call",
+        should_continue,
+        ["tool_node", END],
+    )
+    agent_builder.add_edge("tool_node", "llm_call")
+
+    # 编译 agent
+    agent = agent_builder.compile()
+
+    # 调用测试
+    print("=== LangGraph Agent 测试 ===\n")
+    messages = [HumanMessage(content="3 + 5 等于多少？")]
+    result = agent.invoke({"messages": messages})
+
+    print("=== 执行结果 ===")
+    for m in result["messages"]:
+        m.pretty_print()
+
+    print(f"\nLLM 调用次数: {result['llm_calls']}")
+
+if __name__ == "__main__":
+    main()
+
+
+会话存储
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import InMemorySaver
+from langchain_core.runnables import RunnableConfig
+from typing import Annotated
+from typing_extensions import TypedDict
+from operator import add
+
+class State(TypedDict):
+    foo: str
+    bar: Annotated[list[str], add]
+
+def node_a(state: State):
+    return {"foo": "a", "bar": ["a"]}
+
+def node_b(state: State):
+    return {"foo": "b", "bar": ["b"]}
+
+
+workflow = StateGraph(State)
+workflow.add_node(node_a)
+workflow.add_node(node_b)
+workflow.add_edge(START, "node_a")
+workflow.add_edge("node_a", "node_b")
+workflow.add_edge("node_b", END)
+
+checkpointer = InMemorySaver()
+graph = workflow.compile(checkpointer=checkpointer)
+
+config: RunnableConfig = {"configurable": {"thread_id": "1"}}
+graph.invoke({"foo": "", "bar":[]}, config)
+checkpointer属性解读
+checkpointer，让 LangGraph 具备了以下能力：
+1. 断点续传：如果程序在 node_b 执行完后断电了，下次启动时，框架读取这个 JSON，就能立刻知道 bar 已经加到了 ["a", "b"]，不需要重新跑 node_a。
+2. 多轮对话：在你的 MessagesState 案例中，每一轮对话都会生成这样一个快照。下一次用户提问，模型就是从 channel_values 里的 messages 读取历史记录的。
+3. 调试透明：通过 updated_channels 和 channel_values 的对比，你可以清晰地看到你的 operator.add 到底有没有生效。
+{
+  "v": 4,
+  "ts": "2026-01-23T08:30:32.174904+00:00",
+  "id": "1f0f835c-80d3-645d-8002-c3e6d84c8425",
+  "channel_versions": {
+    "__start__": "00000000000000000000000000000002.0.7976785901455399",
+    "foo": "00000000000000000000000000000004.0.018407739722998362",
+    "bar": "00000000000000000000000000000004.0.018407739722998362",
+    "branch:to:node_a": "00000000000000000000000000000003.0.7759189703725466",
+    "branch:to:node_b": "00000000000000000000000000000004.0.018407739722998362"
+  },
+  "versions_seen": {
+    "__input__": {},
+    "__start__": {
+      "__start__": "00000000000000000000000000000001.0.7201507032744114"
+    },
+    "node_a": {
+      "branch:to:node_a": "00000000000000000000000000000002.0.7976785901455399"
+    },
+    "node_b": {
+      "branch:to:node_b": "00000000000000000000000000000003.0.7759189703725466"
+    }
+  },
+  "updated_channels": [
+    "bar",
+    "foo"
+  ],
+  "channel_values": {
+    "foo": "b",
+    "bar": [
+      "a",
+      "b"
+    ]
+  }
+}
+
+1. 核心状态信息（最重要）
+- channel_values: 这就是你当前最新的“文件夹”内容。
+  - foo: "b"。你会发现这里只有 "b"。因为 State 定义中 foo 没加 Annotated，所以 node_b 的结果覆盖了 node_a。
+  - bar: ["a", "b"]。重点来了！ 因为你写了 Annotated[list[str], add]，所以 node_a 产生的 ["a"] 和 node_b 产生的 ["b"] 被累加在了一起。
+- updated_channels: ["bar", "foo"]。
+  - 记录了在最后这一个步骤中，哪些字段被更新了。这对于调试非常有帮助，能一眼看出上个节点动了哪些数据。
+
+---
+2. 存档标识信息
+- v: 4。这是 Checkpoint 的架构版本号（Schema Version），通常不用管，供框架升级时向下兼容使用。
+- ts: 时间戳。记录这个存档是哪一秒生成的。
+- id: 存档的唯一标识符（UUID）。如果你想让 Agent “时光倒流”回到这一步，就需要这个 ID。
+
+---
+3. 版本追踪（核心黑科技）
+这一部分是 LangGraph 保证数据一致性的“心跳”：
+- channel_versions:
+  - 给每一个字段（Channel）都打了一个版本号（那个长长的字符串）。
+  - 每当 foo 或 bar 更新一次，对应的版本号就会变。这确保了在复杂的并行节点运行中，系统能识别谁是最新的。
+- versions_seen:
+  - 记录了每个节点在执行前最后一眼看到的版本。
+  - 比如 node_b 看到 branch:to:node_b 的版本是 ...03。如果执行完发现版本变了，框架就能检测到冲突。
+
+
+天气查询 + LLM checkpointer查看
+
+
+"""
+LangGraph 1.0+ 教程 - 04.py
+LLM + 天气查询工具 + Checkpointer 最简单示例
+"""
+
+import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langchain.tools import tool
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import InMemorySaver
+from langchain_core.runnables import RunnableConfig
+from langchain.messages import AnyMessage, SystemMessage, ToolMessage, HumanMessage, AIMessage
+from typing_extensions import TypedDict, Annotated
+import operator
+from typing import Literal
+import json
+
+# 加载 .env 文件
+load_dotenv()
+
+# ============================================================
+# Step 1: LLM 配置
+# ============================================================
+api_key = os.environ.get("ARK_API_KEY")
+llm = ChatOpenAI(
+    model="doubao-seed-1-8-251228",
+    temperature=0,
+    api_key=api_key,
+    base_url="https://ark.cn-beijing.volces.com/api/v3",
+)
+
+# ============================================================
+# Step 2: 定义天气查询工具
+# ============================================================
+@tool
+def get_weather(city: str) -> str:
+    """查询城市天气
+
+    Args:
+        city: 城市名称
+    """
+    # 模拟天气数据
+    weather_data = {
+        "北京": "北京今天天气晴朗，温度 25°C",
+        "上海": "上海今天多云，温度 22°C",
+        "广州": "广州今天下雨，温度 28°C",
+        "深圳": "深圳今天晴天，温度 29°C",
+    }
+    return weather_data.get(city, f"{city}的天气情况未知")
+
+# 绑定工具到 LLM
+tools = [get_weather]
+tools_by_name = {t.name: t for t in tools}
+model_with_tools = llm.bind_tools(tools)
+
+# ============================================================
+# Step 3: 定义状态
+# ============================================================
+class WeatherState(TypedDict):
+    messages: Annotated[list[AnyMessage], operator.add]
+    city: str
+    weather_result: str
+
+# ============================================================
+# Step 4: 定义节点
+# ============================================================
+def call_llm(state: WeatherState):
+    """LLM 判断是否需要调用天气工具"""
+    response = model_with_tools.invoke(
+        [
+            SystemMessage(
+                content="你是一个天气助手。如果用户询问天气，调用 get_weather 工具；"
+                        "否则直接回复用户。"
+            )
+        ]
+        + state["messages"]
+    )
+    return {"messages": [response]}
+
+def get_weather_node(state: WeatherState):
+    """执行天气查询工具"""
+    result = []
+    for tool_call in state["messages"][-1].tool_calls:
+        tool_obj = tools_by_name[tool_call["name"]]
+        observation = tool_obj.invoke(tool_call["args"])
+        result.append(ToolMessage(content=observation, tool_call_id=tool_call["id"]))
+        # 同时保存天气结果到 state
+        if tool_call["name"] == "get_weather":
+            return {"weather_result": observation, "messages": result}
+    return {"messages": result}
+
+def final_response(state: WeatherState):
+    """最终回复用户"""
+    return {"messages": [AIMessage(content="天气查询完成，请查看上方结果。")]}
+
+# ============================================================
+# Step 5: 定义条件判断
+# ============================================================
+def should_continue(state: WeatherState) -> Literal["get_weather", END]:
+    """根据 LLM 是否调用工具决定下一步"""
+    last_message = state["messages"][-1]
+    if last_message.tool_calls:
+        return "get_weather"
+    return END
+
+# ============================================================
+# Step 6: 构建图
+# ============================================================
+def main():
+    # 构建工作流
+    graph = StateGraph(WeatherState)
+
+    # 添加节点
+    graph.add_node("call_llm", call_llm)
+    graph.add_node("get_weather", get_weather_node)
+    graph.add_node("final_response", final_response)
+
+    # 添加边
+    graph.add_edge(START, "call_llm")
+    graph.add_conditional_edges(
+        "call_llm",
+        should_continue,
+        ["get_weather", END],
+    )
+    graph.add_edge("get_weather", "final_response")
+    graph.add_edge("final_response", END)
+
+    # 添加 checkpointer
+    checkpointer = InMemorySaver()
+    agent = graph.compile(checkpointer=checkpointer)
+
+    # ============================================================
+    # Step 7: 调用并查看 checkpointer
+    # ============================================================
+    config: RunnableConfig = {"configurable": {"thread_id": "1"}}
+
+    print("=== LangGraph 天气查询示例 ===\n")
+
+    # 第一次调用
+    print("--- 调用：查询北京天气 ---")
+    messages = [HumanMessage(content="北京今天天气怎么样？")]
+    result = agent.invoke({"messages": messages}, config)
+    for m in result["messages"]:
+        m.pretty_print()
+
+    print("\n" + "=" * 60)
+    print("=== Checkpointer 存储内容 ===")
+    print("=" * 60)
+
+    checkpoint_tuple = checkpointer.get_tuple(config)
+    if checkpoint_tuple:
+        print(f"Thread ID: {checkpoint_tuple.config['configurable']['thread_id']}")
+        print(f"Checkpoint ID: {checkpoint_tuple.checkpoint['id']}")
+        print(f"Timestamp: {checkpoint_tuple.checkpoint['ts']}")
+        print()
+        print("=== Channel Values (状态) ===")
+        channel_values = checkpoint_tuple.checkpoint["channel_values"]
+        for key, value in channel_values.items():
+            if key == "messages":
+                print(f"  {key}: [{len(value)} 条消息]")
+                for i, msg in enumerate(value):
+                    msg_type = getattr(msg, 'type', 'dict') if isinstance(msg, dict) else msg.type
+                    msg_content = msg.get('content', '') if isinstance(msg, dict) else msg.content
+                    print(f"    [{i}] {msg_type}: {msg_content[:50]}...")
+            else:
+                print(f"  {key}: {value}")
+        print()
+        print("=== 完整 Checkpoint JSON ===")
+        # 转换 messages 为可 JSON 序列化的格式
+        checkpoint_json = checkpoint_tuple.checkpoint.copy()
+        channel_values = checkpoint_json["channel_values"]
+        if "messages" in channel_values:
+            channel_values["messages"] = [
+                {"type": msg.type, "content": msg.content} if hasattr(msg, 'type') else msg
+                for msg in channel_values["messages"]
+            ]
+        print(json.dumps(checkpoint_json, indent=2, ensure_ascii=False))
+
+    print("\n" + "=" * 60)
+    print("=== 流程执行顺序 ===")
+    print("  START -> call_llm -> (判断) -> get_weather -> final_response -> END")
+    print("=" * 60)
+
+if __name__ == "__main__":
+    main()
+
+{
+  "v": 4,
+  "ts": "2026-01-23T09:15:46.723124+00:00",
+  "id": "1f0f83c1-a0c6-643b-8003-b1edc65b382b",
+  "channel_versions": {
+    "__start__": "00000000000000000000000000000002.0.8017921711997801",
+    "messages": "00000000000000000000000000000005.0.3440095163961827",
+    "branch:to:call_llm": "00000000000000000000000000000003.0.9804007864563142",
+    "branch:to:get_weather": "00000000000000000000000000000004.0.17505247433105264",     
+    "weather_result": "00000000000000000000000000000004.0.17505247433105264",
+    "branch:to:final_response": "00000000000000000000000000000005.0.3440095163961827"    
+  },
+  "versions_seen": {
+    "__input__": {},
+    "__start__": {
+      "__start__": "00000000000000000000000000000001.0.7989411734533836"
+    },
+    "call_llm": {
+      "branch:to:call_llm": "00000000000000000000000000000002.0.8017921711997801"        
+    },
+    "get_weather": {
+      "branch:to:get_weather": "00000000000000000000000000000003.0.9804007864563142"     
+    },
+    "final_response": {
+      "branch:to:final_response": "00000000000000000000000000000004.0.17505247433105264" 
+    }
+  },
+  "updated_channels": [
+    "messages"
+  ],
+  "channel_values": {
+    "messages": [
+      {
+        "type": "human",
+        "content": "北京今天天气怎么样？"
+      },
+      {
+        "type": "ai",
+        "content": ""
+      },
+      {
+        "type": "tool",
+        "content": "北京今天天气晴朗，温度 25°C"
+      },
+      {
+        "type": "ai",
+        "content": "天气查询完成，请查看上方结果。"
+      }
+    ],
+    "weather_result": "北京今天天气晴朗，温度 25°C"
+  }
+}
+[图片]
+
+流程中断、恢复
+中断的实际代码演示
+
+定义的图中的一个node节点
+# nodes.py
+from langgraph.types import interrupt
+
+def approval_node(state):
+    print("--- AI 准备执行敏感操作，请求人工审批 ---")
+    
+    # 这一行会产生中断。初次运行到这，函数会直接终止。
+    # 当人类恢复(Resume)时，它的返回值就是人类输入的内容。
+    user_decision = interrupt("你是否允许执行扣款 100 元的操作？")
+    
+    return {"approved": user_decision}
+
+# 之后在 Graph 中配置好这个节点即可
+# frontend_mock.py
+
+# 1. 运行 AI
+result = graph.invoke({"input": "开始转账"}, config=config)
+
+# 2. 检查是否有中断请求
+if "__interrupt__" in result and result["__interrupt__"]:
+    # 拿到 interrupt() 括号里填的那句话
+    prompt_text = result["__interrupt__"][0].value
+    
+    # 模拟前端弹窗
+    print(f"【前端弹窗提示】: {prompt_text}")
+    print("1. 批准  2. 拒绝")
+    
+    # 获取用户真实点击/输入
+    user_choice = input("请选择 (输入 yes/no): ") 
+    # 将输入发送回后端触发逻辑...
+# resume_logic.py
+from langgraph.types import Command
+
+# 假设用户刚才输入了 "yes"
+user_input = True if user_choice == "yes" else False
+
+# 再次调用同一个 graph。注意：
+# 1. 这里的输入是 Command，而不是原始的 {"input": ...}
+# 2. config 必须带上之前的 thread_id，否则找不到“前世记忆”
+graph.invoke(
+    Command(resume=user_input), 
+    config={"configurable": {"thread_id": "user_123"}}
+)
+
+print("--- AI 已接收指令，继续执行后续任务 ---")
+
+真实场景中代码示意
+1. Ai SDK
+2. 后端
+3. 前端
+=Ai应用
+
+Ai逻辑
+# ai_engine.py
+from langgraph.types import interrupt
+from langgraph.graph import StateGraph, START, END
+
+def approval_node(state):
+    # 【核心点】程序运行到这里会直接中断，并把字符串存在 Checkpoint 里
+    # 等待被 Command(resume=...) 唤醒
+    user_feedback = interrupt("请审核该操作：是否允许转账 100 元？")
+    
+    # 唤醒后，user_feedback 会拿到前端传回的值
+    return {"approved": user_feedback["action"] == "confirm", "comment": user_feedback.get("reason")}
+
+# 构建图... 记得 compile 时挂载 checkpointer（如 PostgresSaver）
+
+后台Api
+# server.py
+from fastapi import FastAPI
+from langgraph.types import Command
+from ai_engine import graph
+
+app = FastAPI()
+
+@app.post("/run-task")
+async def run_task(thread_id: str):
+    config = {"configurable": {"thread_id": thread_id}}
+    # 启动或继续运行
+    result = graph.invoke({"input": "init_data"}, config)
+    
+    # 检查是否中断了
+    if "__interrupt__" in result:
+        return {
+            "status": "waiting_human",
+            "prompt": result["__interrupt__"][0].value, # "请审核..."
+            "thread_id": thread_id
+        }
+    return {"status": "success", "data": result}
+
+@app.post("/resume-task")
+async def resume_task(thread_id: str, decision: dict):
+    # decision 格式: {"action": "confirm", "reason": "OK"}
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    # 【唤醒关键】使用 Command 恢复，把前端的 decision 传给 AI 里的 interrupt()
+    result = graph.invoke(Command(resume=decision), config)
+    return {"status": "resumed", "final_result": result}
+
+前端业务逻辑
+<template>
+  <div class="p-4">
+    <button @click="startAI" class="bg-blue-500 text-white p-2">启动 AI 任务</button>
+
+    <div v-if="showModal" class="modal-overlay">
+      <div class="modal-content">
+        <h3>AI 审批请求</h3>
+        <p>{{ interruptPrompt }}</p>
+        <input v-model="reason" placeholder="输入审批理由" />
+        <button @click="submitDecision('confirm')">批准</button>
+        <button @click="submitDecision('reject')">拒绝</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue';
+import axios from 'axios';
+
+const showModal = ref(false);
+const interruptPrompt = ref('');
+const threadId = "user_123_thread";
+const reason = ref('');
+
+const startAI = async () => {
+  const res = await axios.post('/run-task', { thread_id: threadId });
+  if (res.data.status === 'waiting_human') {
+    interruptPrompt.value = res.data.prompt;
+    showModal.value = true; // 唤起弹窗
+  }
+};
+
+const submitDecision = async (action) => {
+  await axios.post('/resume-task', {
+    thread_id: threadId,
+    decision: { action, reason: reason.value }
+  });
+  showModal.value = false;
+  alert("任务已继续执行");
+};
+</script>
+1. 前端的界面中有一个开始运行大模型的按钮
+2. 前端发起post 请求，run-task
+3. 后端收到请求，就开始graph.invoke，开始运行
+4. 大模型检测到有一个中断的信号
+5. 返回给前端的res中，携带一个status “waiting_human”
+6. 前端就展示一个弹出  同意、拒绝
+7. 用户点击同意
+8. 前端发起post请求 resume-task
+9. 后台就响应resume-task对应的逻辑
+
+
+写一个完整的案例
+[图片]
+
+审批流程
+[图片]
+
+interrupt这里有一个神奇的现象，
+用户第一次跑流程的时候
+interrupt执行完，下面的代码就不走了。
+第二次恢复的时候，
+wait_approval方法会完整执行一遍
+def wait_approval(state: ApprovalState) -> Command[Literal["after_approval", "cancel_node"]]:
+    """等待审批节点 - 严格按照官方示例
+
+    Returns:
+        Command: 包含 interrupt 信息和下一步跳转指令
+    """
+    task_id = state.get("task_id", "")
+    task_content = state.get("task_content", "")
+
+    print(f"\n{'='*50}")
+    print(f"[节点] wait_approval 开始执行")
+    print(f"  任务ID: {task_id}")
+    print(f"  任务内容: {task_content}")
+    print(f"  [中断] 触发 interrupt，等待用户审批...")
+    print(f"{'='*50}\n")
+
+    # 官方模式：interrupt() 返回中断信息，存储在 result["__interrupt__"]
+    # 用户确认后，decision=True，恢复后跳转到 after_approval
+    # 用户拒绝后，decision=False，恢复后跳转到 cancel_node
+    decision = interrupt({
+        "question": "请确认是否批准该任务？",
+        "task_id": task_id,
+        "task_content": task_content,
+    })
+
+    # 恢复后根据决策跳转到对应节点
+    print(f"\n[恢复] 用户决策: {decision}")
+    return Command(goto="after_approval" if decision else "cancel_node")
+
+interrupt底层实现的伪代码
+# 简化版的 interrupt 内部伪代码
+def interrupt(payload):
+    # 1. 检查数据库里有没有关于这个任务的“答案”，实际是通过checkpointer维护的。
+    saved_answer = db.get_answer(current_thread_id)
+    
+    if saved_answer is None:
+        # 第一次执行：没答案，抛异常，存档，停止
+        db.save_state(payload) 
+        raise GraphInterruptException()
+    else:
+        # 第二次执行：有答案了，直接把答案丢给变量，让代码继续跑
+        return saved_answer
+checkpointer是如何维护状态的？
+1. 状态的“快照”机制：Checkpoint ID 的演变
+在你的日志中，有两个关键的时间点，对应了两次不同的“快照”：
+- 中断前 (ID: 1f0f...b22-30aa...)： 当 graph.invoke 执行到 wait_approval 节点的 interrupt 语句时，Checkpointer 立即行动。它把当前的 task_id、task_content 以及那 2 条消息（Human + AI）打包，打上一个唯一的 Checkpoint ID 存入内存。
+- 恢复后 (ID: 1f0f...b22-3db1...)： 注意看，恢复后的 Checkpoint ID 变了。这说明 Checkpointer 并不是覆盖了旧状态，而是新产生了一个版本。它记录了 status 从 pending 变为 approved 的过程。
+
+---
+2. Checkpointer 维护状态的三大步骤
+第一阶段：写入（存档）
+当你第一次调用 /api/start-task 时：
+1. process_task 节点运行结束，更新了 messages 和 final_result。
+2. 进入 wait_approval 节点。
+3. 触发 interrupt： 引擎检测到中断信号，立即调用 checkpointer.put。
+4. 保存： 此时 status 还是 pending。这个状态被持久化，以便程序即使崩溃，重启后也能找到这个 thread_id。
+第二阶段：读取与对比（重放机制）
+当你调用 /api/approve 发送 Command(resume=True) 时：
+1. 加载： 引擎根据 thread_id 从 Checkpointer 中取出最新的快照。
+2. 注入： 引擎看到你传的是 resume=True，它会把这个值准备好。
+3. 重跑节点： 就像你之前发现的，wait_approval 函数会重新进一遍。当运行到 interrupt 时，引擎拦截了这个调用，没有真的去弹窗问问题，而是直接从 Checkpointer 关联的输入记录里把 True 给了 decision。
+第三阶段：更新（提交）
+1. 函数继续往下走，执行 after_approval。
+2. status 被修改为 approved。
+3. 自动存档： 节点执行完毕到 END，Checkpointer 再次记录新的状态，消息数变为了 3 条。
+
+---
+3. 数据通道 (Channel Values) 的管理
+在你的日志输出中，Channel Values 是理解状态的关键。LangGraph 采用的是增量更新和覆盖更新并存的策略：
+- 覆盖更新： status 和 final_result 是普通字段。每次节点返回新值，Checkpointer 就直接把旧值盖掉。
+- 增量累加（Annotated）： 注意你的 messages 字段：
+- Python
+messages: Annotated[list[AnyMessage], operator.add]
+- Checkpointer 知道这个字段不能直接覆盖。每次节点产生新消息，它会调用 operator.add 把新消息“缝合”到旧消息列表后面。这就是为什么你的日志里消息从 2 条变成了 3 条。
+
+InMemoryStore和InMemorySaver的区别？
+都是服务器挂了，数据就没了，相当于在服务器内存中。
+
+都可以用外部数据库来进行持久化存储，说白了，就是存到外部数据库中，长期能使用。
+
+1. Saver (Checkpointer) 的典型场景
+关键词：流程、安全、断点、纠错。
+- 人工审批流（Human-in-the-loop）： 正如你代码里的报销审批。当 AI 执行高风险操作（打款、发敏感邮件、删库）之前，必须“存档”并停下来等老板点头。
+- 长耗时任务的执行： 比如 AI 需要阅读 100 份合同并汇总。如果读到第 50 份时网络断了，有了 Saver，AI 复活后可以从第 51 份开始，不用重新消耗前 50 份的 Token 钱。
+- 多轮复杂对话： 用户在订票过程中，先选了日期，又选了座位。Saver 保证 AI 在问“您确认购买吗？”的时候，还记得刚才选的日期和位置。
+- 版本回溯（Time Travel）： 如果 AI 跑错了，你可以让它回到 3 个 Checkpoint 之前的状态重新跑，像打游戏回档一样修改它的决定。
+2. Store 的典型场景
+关键词：画像、偏好、知识积累、全局规则。
+- 用户偏好记忆（User Profile）： 用户在一次聊天中说“我以后所有的周报都要用 MarkDown 格式”。Store 会把这个偏好存下来。下次用户开启一个新对话时，AI 先去 Store 查一下，直接输出 MarkDown。
+- 跨 Thread 的上下文共享： CEO 在“项目 A”的线程里录入了一些公司背景资料。当他在“项目 B”线程里让 AI 写合同模板时，AI 能直接从 Store 调用公司背景，不需要 CEO 再传一遍。
+- Agent 自我进化（Self-Reflection）： AI 在处理完一个任务后，总结出：“这类任务直接调 Google 搜索比调百度效果好”。它把这个经验存入 Store。以后不管是哪个用户用这个 Agent，它都会变得更聪明。
+- 全局配置与黑名单： 存储一些全局生效的规则。比如“禁止给任何竞争对手发邮件”，这个规则存在 Store 里，所有线程共用。
+
+子图
+from typing_extensions import TypedDict
+from langgraph.graph.state import StateGraph, START
+
+class SubgraphState(TypedDict):
+    bar: str
+
+# Subgraph
+
+def subgraph_node_1(state: SubgraphState):
+    return {"bar": "hi! " + state["bar"]}
+
+subgraph_builder = StateGraph(SubgraphState)
+subgraph_builder.add_node(subgraph_node_1)
+subgraph_builder.add_edge(START, "subgraph_node_1")
+subgraph = subgraph_builder.compile()
+
+# Parent graph
+
+class State(TypedDict):
+    foo: str
+
+def call_subgraph(state: State):
+    # Transform the state to the subgraph state
+    subgraph_output = subgraph.invoke({"bar": state["foo"]})  
+    # Transform response back to the parent state
+    return {"foo": subgraph_output["bar"]}
+
+builder = StateGraph(State)
+builder.add_node("node_1", call_subgraph)
+builder.add_edge(START, "node_1")
+graph = builder.compile()
