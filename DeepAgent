@@ -1,24 +1,31 @@
-https://gitee.com/mood6666/deep_agent/blob/master/docs/00_概念地图.md
-一级标题-什么是Deep Agent？- 开源的、高级脚手架
-如果你已经掌握了 LangChain 或 LangGraph，并且在尝试构建复杂智能体时感到疲惫——比如手动写 Planner、自己折腾长文本摘要、费力隔离 Subgraph 的上下文……那么，Deep Agent 就是为你准备的。
-1. 它究竟是什么？（一句话定位）
+一级标题-什么是Deep Agent？- 高级脚手架
+如果你已经掌握了 LangChain 或 LangGraph，并且在尝试构建复杂智能体时感到疲惫——
+比如手动写 Planner、自己折腾长文本摘要、费力隔离 Subgraph 的上下文……
+那么，Deep Agent 就是为你准备的。
+
+---
+一级标题-DeepAgent 在 LangChain 全家桶里的位置
+要理解 DeepAgent，首先要搞清楚它和 LangChain 的关系。整个 LangChain 生态可以分为四层抽象，就像造汽车一样：
+- Layer 1 · 基础零件库 (LangChain)：提供大模型接口、工具（Tool）、提示词（Prompt）。代码量最多。
+角色： 它是最底层的工具箱。
+作用： 里面装满了各种大模型的接口（对接 OpenAI、千问等）、各种工具（读 PDF、连数据库）。
+痛点： 以前只有 LangChain 的时候，开发者就像拿到了一堆汽车零件，想造一辆能跑的“智能体汽车”，得自己画图纸、拧螺丝，非常痛苦。
+
+- Layer 2 · 运行时引擎 (LangGraph)：提供状态机（节点、边），负责控制程序的流转。代码量中等。
+角色： 它是运行时的控制引擎。
+作用： LangChain 团队后来发现光有零件不行，于是推出了 LangGraph。它专门用来控制大模型的“思考循环”（死循环控制流），确保智能体在多步任务中不会崩溃。
+
+- Layer 3 · 基础循环范式 (create_agent)：官方提供的一个固定循环模式，把零件和引擎拼起来。代码量少。
+
+- Layer 4 · 满配脚手架 (DeepAgents)：也就是我们现在学习的这一层。它在 Layer 3 的基础上，预装了“任务清单、文件系统、子代理”等高级功能。代码量极少。
+角色： 它是 LangChain 团队基于上述两者，直接给你造好的一辆“成品车”（开箱即用的脚手架）。
+作用： 官方直接把**“文件系统（FS）”、“子智能体（Subagent）”、“任务规划（Plan）”**这些高级功能，作为标准配置写死在了这辆车里。
+关系： 当你使用 DeepAgents 时，它的底层自动就在调用 LangChain 的零件和 LangGraph 的引擎。
+
+它究竟是什么？（一句话定位）
 Deep Agent 不是新的运行时（Runtime），也不是新的协议，它是一个“预装了固定套路”的 Agent 模板。
 它底层跑的依然是 LangGraph 的图，用的也还是 LangChain 的工具调用循环。
 它的核心价值在于：把 Claude Code、Manus、Deep Research 等顶尖 AI 产品中已经被验证过的成功经验，默认打包交给了你。
-
-第一层：LangChain（基础零件库）
-- 角色： 它是最底层的工具箱。
-- 作用： 里面装满了各种大模型的接口（对接 OpenAI、千问等）、各种工具（读 PDF、连数据库）。
-- 痛点： 以前只有 LangChain 的时候，开发者就像拿到了一堆汽车零件，想造一辆能跑的“智能体汽车”，得自己画图纸、拧螺丝，非常痛苦。
-
-第二层：LangGraph（底盘与发动机）
-- 角色： 它是运行时的控制引擎。
-- 作用： LangChain 团队后来发现光有零件不行，于是推出了 LangGraph。它专门用来控制大模型的“思考循环”（死循环控制流），确保智能体在多步任务中不会崩溃。
-
-第三层：DeepAgents（配置齐全的成品越野车）—— 也就是你博客里看到的
-- 角色： 它是 LangChain 团队基于上述两者，直接给你造好的一辆“成品车”（开箱即用的脚手架）。
-- 作用： 官方直接把**“文件系统（FS）”、“子智能体（Subagent）”、“任务规划（Plan）”**这些高级功能，作为标准配置写死在了这辆车里。
-- 关系： 当你使用 DeepAgents 时，它的底层自动就在调用 LangChain 的零件和 LangGraph 的引擎。
 
 它的核心作用是什么？
 它的作用是帮你省去大量重复造轮子的时间。它通过内置一系列强大的中间件和工具，直接解决了开发者在构建复杂 Agent 时的核心痛点：
@@ -31,7 +38,16 @@ Shell 执行execute自己接 e2b / docker
 人审interrupt_on 包装自己写 HITL (Human-in-the-loop)
 
 ---
-一级标题-什么是 Deep Agent？（工程架构视角）
+一级标题-核心原理：ReAct 循环与 DeepAgent 的“魔法”
+三级标题-先打底：什么是 ReAct？
+create_agent 内部跑的是一种叫 ReAct（Reason + Act，思考+行动） 的循环范式。
+简单来说，就是让大模型在“思考”和“调工具”之间反复横跳，直到它觉得可以回答用户了为止。
+1. 思考 (Thought)：大模型想“我下一步该干嘛？”
+2. 行动 (Action)：决定调用哪个工具（比如查天气）。
+3. 观察 (Observation)：把工具返回的结果（比如“晴，22度”）塞回给大模型。
+4. 循环：大模型继续思考，直到不需要工具，输出最终答案。
+
+三级标题-DeepAgent 到底升级了什么？
 从代码实现来看，Deep Agent 并不是一个全新的底层协议，而是一个被高度武装的 ReAct 智能体脚手架。
 可以用一个公式来准确定义它：
 create_deep_agent ≈ 
@@ -43,40 +59,787 @@ create_agent（干净的 ReAct） +
 2. FilesystemMiddleware：注入虚拟文件系统（ls/read/write/grep），让模型学会用文件管理上下文。
 3. SubAgentMiddleware：注入 task 工具，遇到复杂任务自动派发给子代理。
 4. SummarizationMiddleware：作为兜底，在上下文太长时自动总结历史记录。
+额外的，预制了一个System Prompt：
+- 默认 system prompt → 教会模型"先 plan、再做、写文件管理上下文、复杂任务派子代理"
 
 ---
-一级标题-核心思想一：超长文本如何处理？（以 10 万字对比为例）
-1. 绕不开的物理事实
-LLM 真正做对比的那一刻，被对比的内容必须出现在 Prompt 里。这是 Transformer 的工作机制决定的，它看不到“硬盘上的文件”。
-因此，虚拟文件系统（FS）没有任何“魔法压缩算法”，它的本质是把“截取哪一段”的决定权交给 LLM 自己。
+一级标题-代码Demo对比 —— 裸奔 vs 满配
+我们来看一个具体的任务：“调研 LangGraph / DeepAgents / create_agent 三者，输出一份中文对比报告”。
+假设我们有两个工具：search_docs（搜短链接）和 fetch_page（抓取几千字的长网页）。
+def search_docs(topic: str) -> list[str]:"""返回 5~10 个候选文档 URL（短结果）"""
 
-2. 核心误区：超过一定字数就要走 FS 吗？
-错。核心是权衡**“占用 Context 的代价” vs “多几轮工具调用的代价”**。
-1. 1万字级别——直接塞进 Context        
-1万字直接塞的成本，远比“写文件 -> 读文件 -> 再读文件”的 Token 消耗更低。
-FS 不是用来“显得专业”的，能直接塞就直接塞。
+def fetch_page(url: str) -> str:"""抓一个网页正文，返回几千字的长文（长结果）"""
+三级标题-用 create_agent（裸 ReAct）
+from langchain.agents import create_agent
 
-2. 10万字级别——必须拆解（走 FS 或 Subagent）
-根本塞不下，且注意力机制对 50k+ Token 的“逐字对比”效果极差。
+agent = create_agent(
+    model=build_doubao(),
+    tools=[search_docs, fetch_page],
+    system_prompt="你是技术写作助手，输出中文对比报告。"
+)
+result = agent.invoke({"messages": [{"role": "user", "content": "..."}]})
+# result.keys() → dict_keys(['messages'])   ← 只有 messages，没别的
 
-3. 10 万字对比的工程解法：维度抽取 + 局部合成
-Deep Agent 自带**“工具结果自动 offload（卸载）”**的隐形大杀器。
+痛点分析：
+- 容易遗忘：没有任务清单，模型搜着搜着可能就忘了要搜第三个东西。
+- 撑爆内存：fetch_page 抓一次 5000 字，抓 3 次直接把大模型的上下文（Context）撑爆。
+
+---
+三级标题-用 create_deep_agent（满配体验）
+from deepagents import create_deep_agent
+
+agent = create_deep_agent(
+    model=build_doubao(),
+    tools=[search_docs, fetch_page],   # 同样两个业务工具
+    system_prompt="你是技术写作助手，输出中文对比报告。"
+)
+result = agent.invoke({"messages": [{"role": "user", "content": "..."}]})
+# result.keys() → dict_keys(['messages', 'todos', 'files'])  ← 多了两个神奇的字段
+
+自动触发的魔法（无需你写代码）：
+1. 自动列计划：先调 write_todos 列出 5 步计划。
+2. 自动存硬盘：每次抓到长文，立刻落到虚拟文件系统（如 /research/langgraph.md）。
+3. 局部检索：写报告时不再翻聊天记录，而是用 grep 搜索文件里的关键词。
+4. 自动打勾：每完成一项，自动把计划标为 completed。
+
+---
+三级标题-应该重点看终端输出里的 3 块
+四级标题-FINAL ANSWER
+豆包给出的最终穿搭建议。这部分和你用 create_agent 体验差不多。
+四级标题-TODO LIST
+1. [completed] 查询北京天气
+[completed] 查询上海天气
+[completed] 查询深圳天气
+[completed] 综合三地天气给出穿搭建议
+这是 deepagent 最直观的"魔法"。
+模型在内部调用了 write_todos 工具来列计划。这个工具是 deepagent 自动注入的，不是你写的。
+它的作用类似于 Claude Code / Cursor 里你看到的"任务进度卡"——给模型一个外置 scratchpad，强迫它"先想再做"，避免在长链路里跑偏。
+如果任务太简单（比如只问一个城市），模型可能根本不调 write_todos，TODO LIST 就会是空的。这是预期行为：deepagent 把"是否值得规划"的判断也交给了 LLM。
+四级标题-TOOL CALLS
+- write_todos: 2 次     ← deepagent 内置
+get_weather: 3 次     ← 你自己写的
+注意 write_todos 出现了 2 次：第一次创建清单，第二次（甚至更多次）勾掉已完成项 / 调整计划。
+
+---
+一级标题- Result 中的 todos 与 files 字段
+运行 DeepAgent 后，返回的结果里会多出 todos 和 files 两个字段。
+三级标题-todos（任务清单）长啥样？
+它是一个由大模型自己维护的字典列表。
+状态（status）只有三种：
+pending（待办）、
+in_progress（进行中）、
+completed（已完成）。
+[
+    {"content": "搜资料",            "status": "completed",  "id": "1"},
+    {"content": "精读 LangGraph",    "status": "completed",  "id": "2"},
+    {"content": "精读 DeepAgents",   "status": "completed",  "id": "3"},
+    {"content": "精读 create_agent", "status": "in_progress","id": "4"},
+    {"content": "起草对比报告",      "status": "pending",    "id": "5"},
+]
+
+---
+三级标题-files（文件系统）与隐形大杀器：自动 Offload
+files 是一个字典，记录了路径和文件内容。
+{
+    "/research/langgraph.md":     {"content": "# LangGraph ...（5200 字）", "encoding": "utf-8", ...},
+    "/research/deepagents.md":    {"content": "# DeepAgents ...（4800 字）", "encoding": "utf-8", ...},
+    "/research/create_agent.md":  {"content": "# create_agent ...（3100 字）", "encoding": "utf-8", ...},
+    "/report.md":                 {"content": "# 三者对比\n\n| 维度 | ... |", "encoding": "utf-8", ...},
+}
+
+---
+三级标题-常见疑问：“抓了 5000 字存进文件，最后不还是要塞给大模型吗？跟直接塞聊天记录有啥区别？”
+核心区别在于：DeepAgent 自带“工具结果自动 offload（卸载）”机制！
+- 当工具返回超过 20000 token 的长文本时，DeepAgent 会自动把它写进虚拟文件。
+- 然后在聊天记录（messages）里，只留下一张 300 字的“提货单”（告诉你文件存在哪了，给你看个开头结尾）。
+- 之后大模型再经过几十轮的思考，聊天记录里永远只有这 300 字的提货单，大大节省了 Token 和上下文空间。
+- 当大模型真需要看细节时，它会主动调用 read_file 或 grep 按需、分页地去读取那几十行内容。
+【对比维度：长文处理】
+- create_agent (裸奔)：
+  完整 8 万字直接塞进 messages
+
+- create_deep_agent (满配)：
+  自动拦截，存入文件，messages 仅留 300 字回执
+
+--------------------------------------------------
+
+【对比维度：后续轮次】
+- create_agent (裸奔)：
+  每一轮都要重新把 8 万字发给大模型
+
+- create_deep_agent (满配)：
+  每一轮只发 300 字回执，用到时再按需读取
+
+
+---
+一级标题-成本分析：为什么 DeepAgent 更慢、更贵？
+三级标题-以 trace：3 项任务处理展示
+任务："调研 LangGraph / DeepAgents / create_agent，
+给个总结"，唯一的业务工具是 fetch_doc(topic) -> str。
+A. 用 create_deep_agent 跑（合计 8 次 LLM 调用）
+【轮 1】LLM 调用 #1
+  收到 messages：[system, user("调研三者…")]
+  LLM 想："任务挺复杂，先列个计划"
+  LLM 输出  → tool_call: write_todos([搜A, 搜B, 搜C])
+  middleware 执行：把 todos 写进 state（0 ms，不调外部 API）
+  生成 ToolMessage("todos updated")
+  
+【轮 2】LLM 调用 #2
+  收到 messages：[..., AIMsg(write_todos), ToolMsg("todos updated")]
+  LLM 想："计划列好了，开始第 1 项"
+  LLM 输出  → tool_call: fetch_doc("langgraph")
+  生成 ToolMessage("# LangGraph 是 ...")
+  
+【轮 3】LLM 调用 #3   ← 「勾掉第 1 项」就是这一轮
+  收到 messages：[..., AIMsg(fetch_doc), ToolMsg("# LangGraph...")]
+  LLM 想："第 1 项做完了，标为 completed"
+  LLM 输出  → tool_call: write_todos([✓搜A, 搜B, 搜C])
+  生成 ToolMessage("todos updated")
+  
+【轮 4】LLM 调用 #4
+  LLM 想："继续第 2 项"
+  LLM 输出  → tool_call: fetch_doc("deepagents")
+  
+【轮 5】LLM 调用 #5   ← 「勾掉第 2 项」
+  LLM 输出  → tool_call: write_todos([✓A, ✓B, 搜C])
+  
+【轮 6】LLM 调用 #6
+  LLM 输出  → tool_call: fetch_doc("create_agent")
+  
+【轮 7】LLM 调用 #7   ← 「勾掉第 3 项」
+  LLM 输出  → tool_call: write_todos([✓A, ✓B, ✓C])
+  
+【轮 8】LLM 调用 #8
+  收到 messages：[…上面所有累积…]
+  LLM 想："三个都搜完了，可以总结了"
+  LLM 输出  → final answer（不带 tool_calls）→ 循环结束
+B. 用 create_agent 跑同样任务（合计 4 次 LLM 调用）
+【轮 1】LLM 调用 #1   → tool_call: fetch_doc("langgraph")
+【轮 2】LLM 调用 #2   → tool_call: fetch_doc("deepagents")
+【轮 3】LLM 调用 #3   → tool_call: fetch_doc("create_agent")
+【轮 4】LLM 调用 #4   → final answer
+多花的 4 次 = 1 次建表 + 3 次勾掉。每个"勾掉"动作严格对应中间多出来的一轮。
+
+千万别忽略：大模型每打一个勾（修改一次 todo），都要消耗一次完整的 API 调用！
+大模型是无状态的，它不能“暂停一下打个勾再继续”。它的逻辑是：
+1. 决定打勾 -> 调用 write_todos 工具 -> 本轮结束。
+2. 收到“已更新”的回执 -> 开始下一轮思考 -> 决定下一步干嘛。
+
+成本估算对比：
+完成一个 5 项任务，create_agent 可能只需要 6 次大模型调用。
+而 create_deep_agent 需要：
+1次建表 + 5次业务调用 + 5次打勾 + 1次总结 = 至少 12 次调用！
+结论：DeepAgent 是用 Token（钱）和 延迟（时间）去换取复杂任务的稳定性。
+
+---
+三级标题-总结什么时候该用？
+✅ 适合用 DeepAgent 的场景：
+- 多步、需要规划的复杂任务（如：深度研究、写长篇报告、写代码）。
+- 工具返回结果极长（如：爬取整个网页、读取长篇 PDF、查询数据库返回大量表格）。
+- 需要多个子代理协作，或者需要一个虚拟“草稿本”来暂存中间数据的场景。
+
+❌ 不适合用 DeepAgent 的场景：
+- 单工具调用的简单 QA（比如只是查个天气，用 DeepAgent 纯属浪费 Token）。
+- 极度延迟敏感的场景（因为它内置的系统提示词很长，且频繁打勾会增加很多轮次的等待时间）。
+- 流程已经完全固定，不需要大模型自己做决策的场景（这种直接写普通的 Python 代码或 LangGraph 状态机即可）。
+
+---
+没问题，我把原汁原味的代码块和底层源码逻辑全部给您加回来。以下是为您重新整理的、**一字不落保留 Q1 核心细节与所有代码块**的完整笔记版本：
+
+
+---
+
+一级标题-DeepAgent 虚拟文件系统 (Virtual FS) 详解
+三级标题-解决的痛点与 DeepAgent 的方案
+
+1. 传统方案的痛点：长上下文爆炸
+写过 RAG 或多步 Agent 的同学都遇到过：工具调用返回了一个 5000 字的网页，塞回 message 后下一轮 LLM 调用 token 数爆炸，还把后面的工具调用挤糊涂了。
+通常你会怎么处理？
+- 在工具内部做截断（**损失信息**）
+- 跑一次摘要 chain（**多一次 LLM 调用，贵**）
+- 自己接 vector store 做 RAG（**重活**）
+
+2. DeepAgent 的解法：注入虚拟文件系统
+给 LLM 一套"虚拟文件系统"，让它自己决定把长结果写到哪个文件，下次按需读回来。
+启用 FilesystemMiddleware 后，
+自动注入以下 6 个工具（刻意模仿 Claude Code / Cursor，因为 LLM 早就被训练得"看到这套工具就会条件反射地用"）：
+【默认注入的 6 个文件工具】
+- ls：列出当前虚拟文件系统的所有文件
+- read_file(path)：读文件
+- write_file(path, content)：写整个文件
+- edit_file(path, old, new)：局部替换（避免重写整文件）
+- glob(pattern)：按文件名通配匹配
+- grep(pattern)：在文件内容里 grep
+
+
+---
+
+三级标题-这套文件系统到底在哪？文件到底存在哪了？
+1. 物理位置
+默认在 LangGraph 的 state 里，**并不是真磁盘文件**。
+result["files"] 就是这次会话产生的整个虚拟 FS 的快照。
+如果你给 agent 配了 checkpointer，它会跟随线程持久化；
+
+默认情况下，文件并没有写到你的电脑硬盘里！ 而是写到了进程内存（StateBackend）里。
+程序一关，文件就没了。
+如果你想让它真的生成 Markdown 文件到你的电脑上，需要切换 Backend：
+from deepagents import create_deep_agent
+from deepagents.backends import FilesystemBackend
+
+agent = create_deep_agent(
+    model=build_doubao(),
+    tools=[...],
+    # 加上这一行，文件就会真的写到你电脑的 ./workspace 目录下！
+    backend=FilesystemBackend(root="./workspace"),   
+)
+
+
+2. 跑完 Demo02 你应该看到什么（证据）
+如果你盯着程序运行的后台日志，你会看到以下三个关键证据，证明大模型确实变聪明了：
+动作记录（TOOL CALLS）里出现了读写文件的动作
+【1) TOOL CALLS 里出现 write_file / read_file】
+write_todos: 1 次
+fetch_long_doc: 3 次
+write_file: 3 次     ← agent 把每篇长文都存起来了
+read_file: 2 次      ← 写报告时按需读回（也可能用 grep）
+【通俗翻译】
+- TOOL CALLS 就是秘书的**“行动流水账”**。
+- 你看，秘书去网上抓取了 3 篇长文章（fetch_long_doc: 3 次）。
+- 换作以前的模型，它会把这 3 篇文章一直抱在怀里。但现在，它拿到文章后，立刻转身把它们锁进了文件柜里（write_file: 3 次）。
+- 等到最后要写总结报告时，它并没有凭空瞎编，而是打开柜子，按需翻阅了 2 次资料（read_file: 2 次）。这证明它学会了“好记性不如烂笔头”。
+
+虚拟文件柜（VIRTUAL FILES）里真的有文件了
+【2) VIRTUAL FILES 里能看到 3 个 .md 文件】
+/docs/langgraph.md (1234 chars)
+/docs/deepagents.md (1100 chars)
+/docs/create_agent.md (980 chars)
+【通俗翻译】
+- 这里展示的就是的**“专属文件柜”**。
+- 刚才抓回来的 3 篇文章，被整整齐齐地命名并放在了 /docs/ 目录下，后面还标明了字数（chars）。
+- 注意：这些文件不在你电脑的 C 盘或 D 盘里，它们存在于程序的“运行内存”中，程序一关就销毁了，绝对不会弄脏你的电脑。
+
+聊天记录 messages 里 fetch_long_doc（获取长文档） 的返回不会被反复重复：省了大笔 API 费用！
+LLM 只在第一次工具结果出来时看了原文一眼，之后都是通过 read_file 拉自己的"剪贴板"。
+长内容只占一次 token。
+- 一个残酷的规则：大模型是没有记忆的。你每跟它多聊一轮，底层程序都必须把**“从第一句话到现在的全部聊天记录”重新发给它看一遍，并且按字数（Token）扣钱**。
+- 如果一篇文章有 1 万字，且一直留在聊天记录里，那你每聊一轮，就要冤枉地为这 1 万字付一次钱（这就是所谓的“滚雪球式乱扣费”）。
+- DeepAgent 的魔法在于：大模型在第 1 次拿到这 1 万字时，只看了一眼，就把它塞进了虚拟文件柜。随后，这 1 万字就从聊天记录里被删除了（或者变成了一句简短的“已存入文件”）。
+- 结果：因为聊天记录变短了，你只为这 1 万字付了 1 次钱（只占一次 token）。大模型的脑子也清醒了，再也不会被超长的聊天记录搞得晕头转向。
+
+---
+一级标题-注册专属工具与 System Prompt（基于 Demo03）
+在真实的 Agent 业务开发中，90% 的工作量集中在两件事：**定义结构化工具** 和 **编写领域专属的 System Prompt**。
+三级标题-注册结构化工具：强烈建议使用 @tool 装饰器
+from langchain_core.tools import tool
+
+@tool
+def mock_search(
+    query: str,
+    topic: Literal["general", "tech", "news"] = "general",
+    max_results: int = 3,
+) -> list[dict]:
+    """Mock 的互联网搜索工具。
+    @param {str} query 搜索关键词
+    @param {str} topic 主题分类
+    @param {int} max_results 返回结果数上限
+    @returns {list[dict]} 搜索结果列表
+    """
+    ...
+虽然直接传入普通 Python 函数也能跑（如 Demo01/02），但在生产环境中，面对带有可选参数、枚举值或嵌套结构的复杂工具，必须使用 @tool 配合类型注解。
+- 底层逻辑解释：LangChain 会在底层利用 Pydantic，将你的**类型注解**和 docstring（文档字符串） 自动解析并转换为标准的 JSON Schema，然后喂给大模型的 Tool Calling API。
+- 核心要点：
+  - 枚举值的绝对约束：使用 Literal["general", "tech"] 会在 JSON Schema 中生成严格的 enum 字段。这比你在注释里写“请只输入 general 或 tech”要**可靠 100 倍**，能从 API 层面直接防止模型产生幻觉（输出非法参数）。
+  - 第一句描述定生死：docstring 的第一句话会被提取为工具的 description。大模型在规划任务时，**完全依赖这句话来决定是否调用该工具**。因此，第一句话必须精准描述工具的用途和边界。
+
+---
+三级标题-自定义 system_prompt：不要试图覆盖框架逻辑
+在初始化 Agent 时，你可以通过 system_prompt 参数传入你的领域指令（如 RESEARCH_INSTRUCTIONS）。
+agent = create_deep_agent(
+    model=build_doubao(),
+    tools=[mock_search],
+    system_prompt=RESEARCH_INSTRUCTIONS,   # 你的领域指令
+)
+- 关键认知（极易踩坑点）：
+你的 system_prompt 不会覆盖 DeepAgent 的默认 Prompt，而是**追加拼接**。
+[你的 system_prompt]
++
+[关于 write_todos 怎么用的官方说明]
++
+[关于虚拟 FS 怎么用的官方说明]
++
+[关于 task / sub-agent 怎么用的官方说明]
+这是框架的刻意设计。框架帮你屏蔽了“如何教大模型使用底层工具”的复杂性。因此，你的 Prompt 只需要专注**业务逻辑**（角色定位、输出格式、业务约束）。
+切记：
+不要在 Prompt 中写“禁止使用 write_file 工具”。内置工具是注册在 Graph 节点里的，Prompt 关不掉它们。
+大模型是基于概率生成的。有时候遇到特定的问题，它觉得必须用这个工具才能解决，它就会无视你的口头警告，强行去调用这个工具。
+如果真要禁用，需要在 Middleware（中间件）层面拦截。
+
+---
+三级标题-工具设计的两个最佳实践 (Best Practices)
+- Tip 1：返回结构化数据（JSON/List/Dict），拒绝大段纯文本
+# ✅ 好
+def search(...) -> list[dict]:return [{"title": ..., "url": ..., "snippet": ...}]
+
+# ❌ 不推荐
+def search(...) -> str:return "Title: xxx\nURL: ...\nSnippet: ..."
+
+  - 解释：大模型对 JSON 结构（Key-Value）的解析和信息提取能力，远强于对非结构化长文本的阅读理解。返回结构化数据，也方便模型后续调用 grep 或切片工具进行二次处理。
+  
+- Tip 2：在工具内部做“主动轻量截断”
+  - 解释：虽然 DeepAgent 底层有虚拟文件系统（Virtual FS）作为超长文本的“兜底拦截机制”（超过 8 万字符自动落盘），但这属于**事后补救**。优秀的工具设计应该在源头进行**事前预防**，例如设置 max_results = 3，避免一次性拉取过多无效数据，从而节省 Token 开销并提高响应速度。
+
+💡 核心职责划分小结
+核心模块
+决定权归属
+具体实现方式
+工具的输入/输出 Schema
+开发者
+使用 @tool + 类型注解 + 精准的 docstring
+业务领域指令 (人设/任务)
+开发者
+通过 system_prompt 参数传入自定义 Prompt
+内置工具的使用说明
+DeepAgent 框架
+框架底层自动拼接，开发者无需干预
+大模型实例 / API Key
+开发者
+通过 build_doubao() 等模型构建函数注入
+
+---
+一级标题-子代理 (Sub-agents) 架构，deepagent 最值得学的一个特性
+核心定位：这是 deepagent 最值得学的一个特性。其他都是工具集，子代理是架构。
+三级标题-解决的痛点：Context Bloat (上下文膨胀)
+在复杂任务里，一个 agent 经常需要执行多步操作（例如：搜 5 个不同的关键词 -> 对结果调 10 次评分工具 -> 写报告）。
+如果都让主 agent 干，它的 message 历史会膨胀到 50+ 条，导致 token 飞涨，模型越往后越糊涂。
+传统 LangGraph 的解法是自己用 Send / 子图做隔离，代码量较大。
+deepagent 提供了一个开箱即用的解法：task 工具 + subagents 配置。
+三级标题-三步使用子代理
+1. 定义子代理（一个 dict 即可）
+researcher_subagent = {
+    "name": "researcher",
+    "description": "用来做某一狭窄主题的论文搜集。",  # ← 这段会作为 task 工具的子参数描述
+    "system_prompt": "你是一名学术论文搜集助手...",
+    "tools": ["search_papers"],         # ← 用工具名引用主 agent 已注册的工具
+    "model": "openai:gpt-4o",           # ← 可选，不写就用主 agent 的模型
+}
+
+注：tools 也可以直接传函数对象，但用字符串名字引用主 agent 注册过的更不容易出错。
+
+2. 把它传给主 agent
+agent = create_deep_agent(
+    model=build_doubao(),
+    tools=[search_papers, score_paper],
+    subagents=[researcher_subagent, critic_subagent],
+    system_prompt="你是项目主管...通过 task 工具派活...",
+)
+
+注意：只要传了 subagents，deepagent 就会自动注入一个 task 工具。 task 的签名大致是：
+task(subagent_type: str, description: str) -> str
+主 agent 就是通过调用 task("researcher", "整理 RAG 方向 3 篇论文") 来派活。
+
+3. 看运行时 (TOOL CALLS)
+跑完 demo04，工具调用记录应该长这样：
+- write_todos: 1 次
+- task: 4~6 次 (主 agent 派活的总次数)
+- search_papers: 0 次 (主 agent 自己一次都没调，全派出去了)
+- score_paper: 0 次 (同上)
+结论：主 agent 自己一次工具都没碰，所有脏活都在子代理里完成，主 agent 只接收子代理的"汇报"作为 task 工具的返回值。
+
+---
+三级标题-Context Isolation (上下文隔离) 是怎么做到的？
+每次调用 task(...)，deepagent 都会：
+1. 新开一个干净的 message 历史（只带 system_prompt + 这次 task 的 description）。
+2. 在子图里跑完整的 ReAct 循环（子代理可能调几十次工具）。
+3. 只把子代理的最终消息返回给主 agent 作为 task 工具的"返回值"。
+类比：你把一份"做调研"的工单丢给下属，下属回办公室埋头干 3 天，回来给你 3 页 PDF。 
+你（主 agent）的脑子（context）里只有那 3 页 PDF，并不知道下属用了哪些 Excel、查了多少网站。
+主 agent 的 message 历史里只多了一对 [task调用 → task结果]，干干净净。
+
+---
+三级标题-何时选哪个：子代理 vs 普通工具
+- 场景一：单步调用，结果短
+  - 用普通工具：✅ 推荐
+  - 用子代理：❌ 不推荐（杀鸡用牛刀）
+- 场景二：单步调用，结果长
+  - 用普通工具：✅ 推荐（让主 agent 用 write_file 落盘）
+  - 用子代理：⚠️ 也行
+- 场景三：需要"工具链式"组合（搜→筛→打分→写）
+  - 用普通工具：⚠️ 不推荐（主 agent 会很吵）
+  - 用子代理：✅ 推荐（派给子代理）
+- 场景四：需要不同的 system_prompt / 不同的模型
+  - 用普通工具：❌ 无法做到
+  - 用子代理：✅ 推荐（子代理可独立配置）
+- 场景五：并行多任务
+  - 用普通工具：⚠️ 串行
+  - 用子代理：✅ 推荐（主 agent 可一次发多个 task）
+经验法则：如果"完成这件事"涉及到 3 步以上的工具调用 + 中间结果较长，就把它包装成子代理。
+
+---
+三级标题-deepagent 的“子代理”本质上就是自动写好了一个标准化的“子图”， 表示的是分工 把大任务拆解的分工关系
+子代理在底层就是用子图（Sub-graph）实现的，但它们是完全不同层级的概念。
+您可以这样理解它们的关系：子图是“底层基建”（砖块和水泥），而子代理是“开箱即用的精装房”。
+结合您上一节的笔记，我们可以从以下几个维度来看它们的区别：
+1. 抽象层级不同（底层架构 vs 业务逻辑）
+- 子图（Sub-graph）：是 LangGraph 等底层框架提供的一种纯技术机制。它只负责状态传递、节点流转和逻辑隔离。它不知道什么是“AI”、什么是“提示词”，它只是一个代码执行的流程图。
+- 子代理（Sub-agent）：是 deepagent 框架在子图之上封装出的业务概念。它代表一个具备独立人格、独立工具、独立思考能力（ReAct 循环）的“虚拟员工”。
+
+2. 代码实现成本（手写几百行 vs 配置几行字典）
+- 用“子图”来实现隔离：您需要自己定义子图的 State（状态）、编写进入子图的节点逻辑、编写离开子图的返回逻辑、处理主图和子图之间的数据映射（Send API），代码量很大，且容易出错。
+- 用“子代理”来实现隔离：deepagent 帮您把上面那些繁琐的子图代码全包揽了。您只需要写一个包含 name、system_prompt 和 tools 的简单字典（dict），框架就会在底层自动为您生成对应的子图，并自动将其包装成主 agent 可以调用的 task 工具。
+
+3. 核心定位（通用工具 vs 专职角色）
+- 子图：可以用来做任何事。比如您可以写一个子图专门用来做“字符串格式化”，或者“循环重试下载”，它不一定需要大模型参与。
+- 子代理：分工，专门用来解决复杂任务中的上下文膨胀（Context Bloat）和角色专精问题。它内部必定包含一个大模型驱动的完整思考执行循环。
+
+您觉得它们一样，是因为 deepagent 的“子代理”本质上就是帮您自动写好了一个标准化的“子图”。它把复杂的底层图结构，简化成了您只需要关心业务逻辑的“三步配置法”。
+
+---
+三级标题-子代理容易踩的坑
+1. 子代理的 description 写不好，主 agent 不会调它：主 agent 决定派给谁，看的就是 description。一定写明：子代理擅长什么、入参应该提供哪些信息、子代理会返回什么。
+2. 不要让子代理写最终报告：子代理的输出会被作为 task 返回值塞回主 agent。如果让子代理写报告，主 agent 又会再润色一次， token 翻倍且经常重复。让子代理出"中间产物"，主 agent 出"最终产物"。
+3. 子代理之间不会自动通信：要传递信息，要么通过虚拟 FS（子代理写、主 agent 读、再传给下一个子代理）； 要么由主 agent 在第二个 task 的 description 里手动转述上一个的结果。
+4. 子代理也有自己的 todo 列表：它本质就是一个嵌套的 deep agent，所以 write_todos 等工具一样可用。
+
+---
+一级标题-Graph vs DeepAgent — 场景选型指南
+一句话：能画出流程图的用 Graph，画不出来的用 DeepAgent，大系统两个混着用。
+三级标题-LangGraph (传统 Graph 模式) vs DeepAgent (Agent 模式) 核心对比
+- 核心本质
+  - LangGraph：你画流程图，LLM 只是流程中的螺丝钉。
+  - DeepAgent：LLM 当项目经理，自己负责拆活、派活、收活。
+- 流程确定时机
+  - LangGraph：编译时确定（代码写死节点与边）。
+  - DeepAgent：运行时由 LLM 动态决策。
+- 执行确定性
+  - LangGraph：确定性高 —— 同样的输入必然走同样的执行路径。
+  - DeepAgent：确定性低 —— LLM 每次可能拆解出不同的执行步骤。
+- 适用场景
+  - LangGraph：适合步骤固定、可穷举的业务流程。
+  - DeepAgent：适合步骤不固定、需要判断力的开放任务。
+
+---
+三级标题-场景对比
+场景一：退款处理 → 适合 Graph
+流程是固定的，不管谁来退款，步骤都一样：
+用户提交退款 → 查订单状态 → 判断金额
+                              ├─ ≤50元 → 自动退款 → 发通知
+                              └─ >50元 → 人工审核 → 退款/拒绝 → 发通知
+用 Graph 写就是几个节点几条边，清晰、可控、可审计。
+用 DeepAgent？杀鸡用牛刀，而且 LLM 可能"自由发挥"跳过风控节点，出了事没法交代。
+判断标准：能画出流程图 → 用 Graph。
+
+---
+场景二：智能客服 → 适合 DeepAgent
+用户进来可能问：
+- "我的快递到哪了？" → 需要查订单 + 查物流
+- "这个手机壳和我的 iPhone 15 兼容吗？" → 需要查商品参数 + 查兼容表
+- "我上周买的衣服质量有问题，想退但过了 7 天了，能不能通融？" → 需要查订单 + 查退款政策 + 判断特殊情况 + 可能升级给人工
+- "帮我推荐一款 500 元以内的蓝牙耳机，我主要跑步用" → 需要搜商品 + 过滤 + 排序 + 生成推荐理由
+你没法提前画出流程图，因为用户问什么、需要调几个工具、调什么顺序，全是动态的。
+这就是 DeepAgent 的场景 —— 给它一堆工具（查订单、查物流、查商品、查政策），让 LLM 自己判断怎么组合。
+
+---
+场景三：商品上架审核 → 适合 Graph
+商家提交 → 图片违规检测 → 标题敏感词过滤 → 价格合理性校验 → 类目合规检查
+                                                              ├─ 全通过 → 上架
+                                                              └─ 有问题 → 打回 + 原因
+每一步都是确定的检测逻辑，顺序也不能变（比如图片不合规就没必要往下走了）。Graph 天然契合。
+
+---
+场景四：运营活动策划 → 适合 DeepAgent
+老板说："下个月 618，帮我策划一个数码品类的促销方案。"
+DeepAgent 会自主：
+1. 先 write_todos 拆成子任务
+2. 派子代理去查历史销售数据
+3. 派子代理去分析竞品活动
+4. 派子代理去测算折扣力度和毛利影响
+5. 汇总写出策划方案
+6. 自己审一遍，觉得哪里薄弱再补充
+每次输入不同（品类不同、目标不同），拆出来的步骤也不同。没有固定流程图。
+
+---
+三级标题-混合架构（最常见的生产做法）
+实际业务中往往是 Graph 做骨架，DeepAgent 做节点：
+Graph 主流程:
+  接单 → [DeepAgent: 智能客服对话] → 判断意图
+                                       ├─ 退款 → Graph: 退款流程
+                                       ├─ 投诉 → Graph: 投诉工单流程
+                                       └─ 咨询 → [DeepAgent: 自由问答]
+- 外层用 Graph 保证业务流程可控（合规、审计、兜底）
+- 内层用 DeepAgent 处理需要灵活判断的环节（理解意图、组合工具、生成内容）
+能画流程图？
+  ├─ 是 → Graph（确定、可控、可审计）
+  └─ 否 → DeepAgent（灵活、智能、自主规划）
+        └─ 需要兜底保障？→ Graph 包一层（混合架构）
+不要把它们看成竞争关系 —— Graph 是铁轨，DeepAgent 是越野车。铁轨适合固定路线高效运行，越野车适合没有路的地方探索。大型系统里，铁轨和越野车往往同时存在。
+
+---
+一级标题-Graph vs DeepAgent —— 中断（人审）机制对比
+一句话：Graph 中断锚在"节点"，DeepAgent 中断锚在"工具名"——前者要你知道流程在哪一步，后者只要你知道哪些动作有风险。
+
+---
+三级标题-核心问题：DeepAgent 是 LLM 自己规划路径的，怎么知道在哪中断？
+很多人从 Graph 转 DeepAgent 时第一反应是：
+Graph 里我画了节点，所以我能说"在 X 节点之前停下让人审"。 
+但 DeepAgent 是 LLM 自己规划路径的，我咋知道在哪儿中断？
+答案是：你不用知道。两者锚定中断点的方式完全不同。
+
+---
+三级标题-中断核心区别对比
+底层都是 LangGraph 的同一套 interrupt() 机制，差别完全在"你怎么声明中断点"。
+===========================================================================
+                      核心区别：LangGraph vs DeepAgent
+===========================================================================
+
+[中断锚点]
+- LangGraph : 节点名（topology-level）
+- DeepAgent : 工具名（tool-level）
+
+[你要声明]
+- LangGraph : "在 check_credit 节点之前停"
+- DeepAgent : "调用 send_email / refund 工具就停"
+
+[触发时机]
+- LangGraph : 流程走到那个节点时
+- DeepAgent : LLM 任何一轮决定要调那个工具时
+
+[你要预知]
+- LangGraph : 流程一定会走到那个节点（图是你画的）
+- DeepAgent : 不需要预知顺序 / 步骤数
+
+[典型 API]
+- LangGraph : interrupt_before=["check_credit"]
+- DeepAgent : interrupt_on={"refund": True}
+
+[底层机制]
+- LangGraph : LangGraph interrupt()
+- DeepAgent : LangGraph interrupt()  *(两者是同一个底层机制)*
+
+[必需依赖]
+- LangGraph : checkpointer
+- DeepAgent : checkpointer
+===========================================================================
+
+Graph 的中断：锚在"节点"
+Graph 是你亲手画的图，编译期就能数清楚有哪些节点：
+START → fetch_user → check_credit → send_email → END
+                         ↑
+                   interrupt_before=["check_credit"]
+写法：
+graph = builder.compile(
+    checkpointer=checkpointer,
+    interrupt_before=["check_credit"],   # 流程走到这就停
+)
+前提是你知道流程长什么样——节点是你画的，你当然知道在哪儿插。
+
+---
+DeepAgent 的中断：锚在"工具名"
+DeepAgent 内部其实也是一个 graph，但拓扑是固定的，只有两个核心节点：
+  ┌─────────────┐   tool_calls    ┌─────────────┐
+  │  model 节点 │ ──────────────► │  tools 节点 │
+  │ (LLM 决策)  │ ◄────────────── │ (执行工具)  │
+  └─────────────┘  tool_results   └─────────────┘
+        ▲                                ▲
+        └────── HITL 钩子在这里 ─────────┘
+            （看 LLM 这一轮要调哪些工具
+              名字命中 interrupt_on 就 interrupt）
+LLM 的"自由规划"只是在循环里选调哪些工具、调多少次——graph 拓扑本身一直没变。
+所以中断锚点不再是"在 X 节点之前停"，而是"任何一次工具调用，只要名字命中清单，就在执行前暂停"。
+写法：
+agent = create_deep_agent(
+    model=...,
+    tools=[fetch_order, query_db, send_email, refund_payment, cancel_order],
+    interrupt_on={
+        "send_email":     True,                                       
+        # 全决策都允许
+        "refund_payment": {"allowed_decisions": ["approve", "edit", "reject"]},
+        "cancel_order":   {"allowed_decisions": ["approve", "reject"]},
+    },
+    checkpointer=checkpointer,
+)
+不管 LLM 第几步调到 refund_payment，也不管它之前调了几次 fetch_order——只要它调，就一定被拦下来。
+
+---
+三级标题-用户申请退款，金额 > 50 元要人工审批的两种写法对比
+需求：用户申请退款，金额 > 50 元要人工审批。
+Graph 写法（步骤可枚举）
+用户提交退款 → 查订单 → 判断金额
+                            ├─ ≤50  → 自动退款 → 发通知 → END
+                            └─ >50  → ⏸ 人审节点 → 退款/拒绝 → END
+graph = builder.compile(
+    checkpointer=checkpointer,
+    interrupt_before=["human_review"],   节点级
+)
+中断点就是图里那个 human_review 节点。确定性高、可审计——只要流程走到这里就停，不可能漏。
+DeepAgent 写法（任务开放）
+agent = create_deep_agent(
+    model=...,
+    tools=[fetch_order, refund_payment, send_notification, ...],
+    interrupt_on={"refund_payment": True},   工具级
+    checkpointer=checkpointer,
+)
+中断点就是 refund_payment 这个工具。不管 LLM 怎么思考、怎么规划——它要花钱就得先过人。
+想做"小额自动批、大额才审"？两种思路：
+把工具拆成 refund_small / refund_large，只把后者放 interrupt_on
+InterruptOnConfig.description 传 callable，根据 args 动态生成审批描述
+# 1. 假设这是你的退款工具
+def refund_payment(user_id: str, amount: float):
+    """给指定用户退款"""
+    return f"已成功给 {user_id} 退款 {amount} 元"
+
+# 2. 定义一个 Callable 函数，专门用来生成动态描述
+# 框架拦截时，会自动把大模型生成的参数 (args) 传给这个函数
+def generate_refund_desc(args: dict) -> str:
+    amount = args.get("amount", 0)
+    user_id = args.get("user_id", "未知用户")
+    
+    # 根据金额动态生成不同的警告级别
+    if amount > 1000:
+        return f"🚨【高危大额审批】大模型正准备给用户 {user_id} 退款 {amount} 元！请仔细核对！"
+    else:
+        return f"⚠️【常规退款审批】大模型申请给用户 {user_id} 退款 {amount} 元，是否同意？"
+
+# 3. 在配置 Agent 时，把这个函数传给 description
+agent = create_deep_agent(
+    model=...,
+    tools=[refund_payment],
+    interrupt_on={
+        "refund_payment": {
+            "allowed_decisions": ["approve", "reject"],
+            "description": generate_refund_desc  # <--- 这里直接传函数名（callable）
+        }
+    },
+    checkpointer=checkpointer,
+)
+
+
+---
+三级标题-中断后的恢复流程（两边一模一样）
+因为底层都是 LangGraph interrupt()，所以暂停 → 人审 → 恢复的写法是完全一样的：
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
+config = {"configurable": {"thread_id": "t1"}}
+
+# 假设我们已经定义好了节点和边，现在准备打包编译
+agent = workflow.compile(
+    checkpointer=memory,             # 插入记忆卡
+    interrupt_before=["tools"]       # <--- 设定中断点
+)
+
+# =================【第一次调用】=================
+# 你给大模型发指令，大模型开始跑
+result = agent.invoke({"messages": [{"role": "user", "content": "帮我退款"}]}, config)
+
+# 大模型跑到一半，发现要调用退款工具，于是系统强制暂停，
+# 并把暂停信号 "__interrupt__" 塞进了 result 里返回给你。
+# ===============================================
+
+
+# =================【判断与第二次调用】=================
+# 此时代码继续往下走，遇到了这个 if 判断：
+if "__interrupt__" in result:  
+    # 因为第一次调用确实被拦截了，所以条件成立，进到了这里面！
+    
+    # 1. 拿到待审请求，给人类看，人类点击同意
+    decision = ask_human(result["__interrupt__"])
+    
+    # 2. 【第二次调用】拿着人类的决定，让大模型继续跑！
+    result = agent.invoke(
+        Command(resume={"decisions": [decision]}),
+        config,   
+    )
+# ====================================================
+关键三件套：checkpointer 固定 thread_id + Command(resume=...)。少一样都恢复不了。
+config 千万不能漏！它告诉系统：请去读取 t1 这个档案的进度，在这个进度上继续往下跑
+
+---
+三级标题-容易踩的坑
+1. DeepAgent 中断 ≠ 节点级中断。它没有 interrupt_before=[节点名]——别试图用节点名去拦，名字根本暴露不出来。
+2. interrupt_on 写的是工具名，不是工具描述里的关键词。模型看不见这个清单，是中间件在看。
+3. 必须给 checkpointer。没有的话中断会丢状态，Command(resume=...) 没东西可恢复。
+4. 子代理的 interrupt_on 是覆盖不是合并。父 agent 设了 {"A": True}，子代理设了 {"B": True}——子代理只会拦 B，不会同时拦 A。
+5. HITL 中间件本身没有"按 args 跳过"的开关。要条件中断要么拆工具、要么自己写 middleware、要么用 permissions 硬拒。
+
+---
+一级标题-常见问题解答（核心细节，不容删减）
+三级标题-Q1：文件多长才会"触发"虚拟 FS 的读写？
+答案是：有**两条完全独立**的路径，阈值不同。
+路径 A · 框架自动 offload（兜底，写死在源码里）
+FilesystemMiddleware 构造时带两个默认参数（在 deepagents/middleware/filesystem.py 中）：
+【框架自动拦截参数表】
+参数名                                  默认值         触发的事
+tool_token_limit_before_evict          20000 token   单条 ToolMessage 超过该值，自动把内容写到 /tool_results/<tool_call_id>，原 message 替换为"预览 + 引用"
+human_message_token_limit_before_evict 50000 token   单条 HumanMessage 同理
+源码里换算字符的常数 NUM_CHARS_PER_TOKEN = 4，即**工具结果 ≥ ~80,000 字符** 才会被框架自动 evict。
+意思是：只要工具（比如 fetch_long_doc）一次性返回的内容超过了 8 万字，安检门就会立刻报警，触发强制拦截！
+下面是关键判断逻辑的源码：
+# Check if content exceeds eviction threshold
+if len(content_str) <= NUM_CHARS_PER_TOKEN * self._tool_token_limit_before_evict:
+    return message, False
+
+# 否则：写入虚拟 FS + 替换 ToolMessage 为预览+引用
+file_path = f"{self._large_tool_results_prefix}/{sanitized_id}"
+result = resolved_backend.write(file_path, content_str)
+只要内容超过 8 万字，框架就不管大模型怎么想了，直接强行把内容塞进文件柜，只给大模型看个“预览”，从而死死守住上下文不被撑爆。
+
+路径 B · LLM 主动调 write_file（业务侧，靠 prompt 教）
+阈值完全由你在 system_prompt 里写。demo02 里是这么写的：
+"当 fetch_long_doc 返回的文档很长（>500 字）时，立刻用 write_file 把原文保存到 /docs/.md 文件中"
+
+这条规矩框架不参与判断——但模型听不听话也是另一回事。
+一句话区分：A 是机器自动，B 是 通过 System prompt 让 LLM 自觉。
+两条路径互相独立，可以同时存在。
+
+---
+三级标题-读写过程到底是怎么走的？（以 Demo02 为例）
+
+路径 B 的实际流程（demo02 跑的就是这条）
+对照终端 TOOL CALLS 里的 fetch_long_doc: 3 次 / write_file: 3 次：
+轮 1  user:        "对比 LangGraph / DeepAgents / create_agent..."
+
+轮 2  LLM 决策:    我要先拉资料
+      → tool_call: fetch_long_doc("langgraph")
+      ← ToolMessage(content="# LangGraph 介绍...")    ← 全文进了 context
+
+轮 3  LLM 看到长返回 → 想起 prompt 那条"长结果落盘"规矩
+      → tool_call: write_file("/docs/langgraph.md", content="...")
+      ← ToolMessage("File written successfully")
+
+轮 4-7  对 deepagents / create_agent 重复 fetch → write    ← 这就是 3 次 + 3 次
+
+轮 8  LLM 此时上下文里已有全部 3 篇原文（在 ToolMessage 历史中）
+      → 直接写最终对比表    ← 注意：它没调 read_file！
+细节剖析：
+demo02 日志里 **没有出现 read_file**——这反而说明上下文还没爆，模型懒得绕一圈，直接用了 ToolMessage 里的原文。
+没有触发底层的清理机制，所以这次操作并没有真正起到“省钱（省 Token）”的作用。
+write_file只有当文章真的长到触发了拦截线，或者长到大模型自己觉得记不住了主动清空记忆时，虚拟文件系统的“省钱”才会真正显现出来！
+write_file 在这种小体量场景下更多是"留个档案"，并不是省 token 的关键动作。
+
+
+---
+
+三级标题-1万字 vs 10万字 怎么处理？（物理法则与三档策略）
+核心物理事实：
+LLM 真正做对比的那一刻，被对比的内容必须出现在 prompt 里。
+这是 transformer 的工作机制。所以虚拟 FS 不是"压缩"，也不是"魔法替换"。
+它实际做的事是：让长内容只占用一次 context（写入文件那一刻），后续轮次需要时按需取片段回到 context。
+【三档体量的实际应对策略】
+体量                 是否能直接塞     推荐做法
+500 字 × 2          一定能          直接拼进 user message，让 LLM 一次性对比
+1w 字 × 2           能              仍然推荐直接塞。绕 FS 反而是负优化（128k 窗口里只占 4%）
+10w 字 × 2          不能            必须分而治之：分段摘要 → 维度抽取 → 最后合成
+
+针对 10w 字 × 2 的高级拆解方案（此时才是 FS / Subagent 真正发光的场景）：
+1. 方案一：维度抽取 + 局部合成（最常用，依赖 grep）
 - Step 1： 将 10 万字长文抓取并自动写入虚拟路径（如 /tool_results/A），此时主 Context 里只留下极短的引用路径。
 - Step 2： LLM 不使用 read_file（避免撑爆），而是使用 grep 工具。
 - Step 3： LLM 通过 grep("定位|核心") 在两份长文中搜索关键词，各自只返回 5~10 行关键片段。
 - Step 4： LLM 拿着这几十行片段，在主 Context 中合成对比结果。 💡
-
 核心 Trick： 把“对比 10w vs 10w”拆成“搜同一组关键词得到几十行片段，再对比这几十行”。
 将 10 万字浓缩成 < 500 字进 Context 做对比，这才是真正的“省”。
 
-deep_agent 的关系： deep_agent 的代码里内置了一个叫 FilesystemMiddleware（文件系统中间件）。
-  - 当你用 deep_agent 写程序时，它会自动给大模型提供 read_file、write_file、grep 这些工具。
-  - 它还会自动把特别长的内容存到虚拟路径里（也就是博客里说的“自动 offload”），不让长文本进入大模型的聊天记录。你不需要自己写一行处理长文本的底层代码。
-
----
-一级标题-核心思想二：复杂任务拆解与上下文隔离
+2. 方案二：Subagent 隔离 context（更彻底）
 当任务极度复杂或文本量大到 grep 也不好使时，就需要用到 Subagent（子代理）机制。
-终极解法：Subagent 隔离 Context
 - 主 Agent 派发任务： 主 Agent 收到“对比 A 和 B”的指令后，不自己读文章，而是向下 delegate（委派）。
 - 子 Agent 独立工作： 子 Agent 1 在自己独立的 Context 里读取 A 的全文，输出 500 字摘要；子 Agent 2 同理处理 B。
 - 结果回收： 子 Agent 只把 500 字摘要返回给主 Agent，主 Agent 拿着两份摘要做最终对比。
@@ -87,6 +850,24 @@ deep_agent 的关系： deep_agent 的代码里内置了一个叫 SubAgentMiddle
   - 它自动给大模型注入了一个叫 task 的工具。
   - 当大模型觉得任务太复杂时，它自己调用 task 工具，deep_agent 的底层代码就会自动帮你拉起一个新的大模型进程（子代理）去干活，干完后再把结果拿回来。
 
-兜底方案：SummarizationMiddleware
+
+3. 方案三：SummarizationMiddleware 兜底
 如果既没用 Subagent，也没用 grep，导致对话历史不断膨胀超过阈值，系统会在后台把早期对话历史压成摘要。
-注意： 这种压缩是有损的（压榨整段历史），且需要多调一次 LLM，它只是最后的兜底防线，首选策略依然是“从源头别让长内容进 Context”。
+注意： 这种压缩是有损的（压榨整段历史），且需要多调一次 LLM，它只是最后的兜底防线，
+首选策略依然是“从源头别让长内容进 Context”。
+
+---
+三级标题-功能总览与一句话总结
+工具                           它解决的事                                      是不是"压缩"
+write_file / read_file         长内容只占一次 context，按需取片段               不是压缩，是"分页 + 引用"
+grep                           在长文里精确取几行进 context                     不是压缩，是"过滤"
+框架自动 evict (≥ 20k token)   工具返回过大时强制变成"预览+引用"                不是压缩，是"换底"
+SubAgentMiddleware             长内容在子 agent 内部消化，主 agent 只看摘要     是真摘要，但是 LLM 写的
+SummarizationMiddleware        早期对话历史滚动压缩                             是真摘要，对历史而非单文件
+一句话总结：
+1. 能直接塞就直接塞（500 字、1w 字都属于这档）——FS 不是用来"显得专业"的。
+2. 对比 10w 字的关键不是"压缩文件"，而是**"压缩对比的中间产物"**——用 grep 拿片段、用 subagent 在隔离 context 里出摘要。
+3. 虚拟 FS 没有任何"压缩算法"，它只是把**"什么时候、看多少"的决定权交给 LLM 自己**用文件工具去管理。
+
+
+---
