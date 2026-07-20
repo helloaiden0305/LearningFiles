@@ -1006,5 +1006,573 @@ backend/
 4. 执行初始化逻辑：
 当包第一次被导入时，__init__.py 里的代码会自动执行。所以很适合在这里放一些包级别的初始化操作，比如配置全局日志、初始化数据库连接等。”
 
+---
+
 
 ---
+40. 怎么管理配置文件？
+
+在现代项目中，为了安全和多环境部署，我们通常不会把配置硬编码在代码文件中，而是采用以下三种递进的方式来管理：
+
+基础方案（环境变量）： 遵循 12-Factor 原则，将数据库密码等敏感信息配置在服务器的环境变量中，代码通过 os.getenv 读取。
+
+本地开发方案（.env 文件）： 本地开发时，我们会把配置写在 .env 文件中，并使用 python-dotenv 库加载。同时严格遵守一条铁律：必须把 .env 加入 .gitignore，绝不把密钥提交到代码仓库。
+
+进阶方案（Pydantic Settings）： 这是我最推荐的方式。使用 pydantic_settings 不仅能自动读取 .env，还能对配置进行类型校验（比如确保端口号必须是整数），大大提高了项目的健壮性。”
+
+# 方法一：环境变量（推荐，12-Factor App）
+import os
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///default.db")
+
+# 方法二：.env 文件 + python-dotenvfrom dotenv import load_dotenv
+load_dotenv()
+API_KEY = os.getenv("API_KEY")
+
+# 方法三：Pydantic Settings（最推荐，类型安全 + 校验）from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    database_url: str
+    api_key: str
+    debug: bool = Falseclass Config:
+        env_file = ".env"
+
+settings = Settings()  # 自动从环境变量和 .env 文件读取
+
+铁律：永远把 .env 加入 .gitignore，绝不把密钥提交到代码仓库。
+
+---
+
+41. 解释 Python 中的魔术方法（Dunder Methods）
+
+# 对象生命周期
+__new__(cls)              # 创建对象
+__init__(self)            # 初始化对象
+__del__(self)             # 对象被销毁时调用# 字符串表示
+__str__(self)             # str(obj)，给用户看
+__repr__(self)            # repr(obj)，给开发者看（应能重建对象）# 容器协议
+__len__(self)             # len(obj)
+__getitem__(self, key)    # obj[key]
+__setitem__(self, k, v)   # obj[key] = v
+__contains__(self, item)  # item in obj# 迭代器协议
+__iter__(self)            # iter(obj)，返回迭代器
+__next__(self)            # next(obj)，返回下一个值# 可调用
+__call__(self, *args)     # obj()，让实例像函数一样调用# 上下文管理器
+__enter__(self)           # with 进入
+__exit__(self, ...)       # with 退出# 运算符重载
+__eq__(self, other)       # ==
+__lt__(self, other)       # <
+__add__(self, other)      # +
+__hash__(self)            # hash()
+
+---
+
+42. slots 的作用？
+
+在 Python 里，你每次创建一个对象（比如一只狗、一个坐标点），Python 默认都会给这个对象配一个**“动态背包”**（底层叫 __dict__ 字典）。
+
+好处：非常自由。你随时可以往背包里塞新东西（比如代码里的 p.z = 3，随时动态添加属性）。
+
+坏处：这个“背包”本身非常笨重，极其消耗内存。如果你只创建几个对象无所谓，但如果你要在游戏里创建一百万个坐标点，这一百万个沉重的“背包”会瞬间把电脑内存撑爆。
+
+
+slots作用：限制实例属性、节省内存。
+
+class Point:
+    __slots__ = ['x', 'y']  # 只允许这两个属性
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+p = Point(1, 2)
+p.z = 3  # AttributeError: 'Point' object has no attribute 'z'
+
+原理：普通类每个实例都有 dict（动态字典），slots 用固定的数组替代字典，省去了哈希表开销。
+
+节省多少：约 40-50% 内存。对于大量实例（如百万级数据对象）效果显著。
+
+注意事项：使用 slots 后不能动态添加属性，也不能使用 dict。如果子类没有定义 slots，子类实例仍会有 dict。
+
+---
+
+43. map、filter、reduce 怎么用？
+
+map（加工厂）： 作用： 把列表里的元素，挨个拿出来“加工”一遍，再放回去。 例子： [1, 2, 3] 经过平方加工，变成 [1, 4, 9]。
+
+filter（安检门）： 作用： 制定一个规则，列表里的元素挨个过安检，合格的留下，不合格的丢弃。 例子： [1, 2, 3, 4] 只要偶数，留下 [2, 4]。
+
+reduce（滚雪球）： 作用： 把列表里的元素，两两结合，不断累积，最后“滚”成一个单一的结果。（注意：它在 functools 模块里，需要导入）。 例子： [1, 2, 3] 累加，1+2=3，3+3=6，最后结果是 6。
+
+面试观点：Python 社区更推荐列表推导式，Guido 本人曾想删除 map/filter/reduce。但 map 在需要惰性求值时有优势（返回迭代器）。
+
+---
+
+44. 如何自定义异常？
+
+class BusinessError(Exception):
+    """业务异常基类"""def __init__(self, message, code=500):
+        self.message = message
+        self.code = code
+        super().__init__(self.message)
+
+class NotFoundError(BusinessError):
+    """资源不存在"""def __init__(self, resource, resource_id):
+        super().__init__(
+            message=f"{resource}(id={resource_id}) 不存在",
+            code=404
+        )
+
+# 使用
+try:
+    raise NotFoundError("用户", 42)
+except BusinessError as e:
+    print(f"[{e.code}] {e.message}")  # [404] 用户(id=42) 不存在
+
+最佳实践：项目中定义异常层次，所有业务异常继承同一个基类，方便统一捕获和处理。
+
+---
+
+45. Python 的设计哲学是什么？
+
+在 Python 解释器中输入 import this 可查看 The Zen of Python。
+
+核心原则：
+- Beautiful is better than ugly. 优美胜于丑陋
+- Explicit is better than implicit. 明了胜于晦涩
+- Simple is better than complex. 简单胜于复杂
+- Readability counts. 可读性很重要
+- There should be one obvious way to do it. 做一件事应该有且仅有一种显而易见的方式
+
+Python 的语言特性：
+- 解释型：先编译为字节码（.pyc），再由 VM 逐行解释执行
+- 动态类型：变量无需声明类型，运行时确定
+- 强类型："1" + 1 报错 TypeError，不会隐式转换（对比 JS 的 "1" + 1 = "11"）
+- 多范式：面向过程、面向对象（OOP）、函数式编程（FP）
+
+---
+
+46. Python 解释器有哪些实现？
+
+“Python 有多种解释器实现，最主流的主要是以下三种：
+
+首先是 CPython，它是官方默认版本，用 C 语言编写，生态最完善。它的特点是会将源码编译成字节码，并缓存为 .pyc 文件来加速后续的模块加载。
+
+其次是 PyPy，它引入了 JIT 即时编译技术，执行纯 Python 代码的速度远超 CPython，是我们做性能优化时的备选方案之一。
+
+最后是面向特定生态的解释器，比如运行在 JVM 上的 Jython，它可以让 Python 代码无缝调用 Java 的类库，方便跨语言项目的集成。”
+
+---
+
+47. Python 中的引用计数是怎么工作的？
+
+import sys
+
+a = [1, 2, 3]
+print(sys.getrefcount(a))  # 2（a 本身 + getrefcount 的参数）
+
+b = a           # +1 → 3
+c = [a, a]      # +2 → 5del b           # -1 → 4
+c = None        # -2 → 2
+
+计数变化规则：
+
+- +1：创建引用、赋值、传参、放入容器
+
+- -1：del、变量重新赋值、离开作用域、从容器移除
+
+致命缺陷——循环引用：
+a = []
+b = []
+a.append(b)  # a → b
+b.append(a)  # b → a，形成环del a, b     # 引用计数各为 1（互相引用），永远不会归零# 需要分代 GC 的标记-清除来回收
+
+---
+
+48. Python 整数的任意精度是怎么实现的？
+
+“Python 3 中的整数具有任意精度，这意味着它没有固定的大小限制，只要内存足够，就不会发生溢出。
+
+在底层实现上，CPython 放弃了使用单一的 C 语言整型来存储数字，而是使用一个数组来分块存储。在 64 位系统中，每个数组元素（digit）存储 30 位的数值。
+
+当进行数学运算时，Python 底层会模拟手工竖式运算，逐块进行相加或相乘，并处理进位。随着数值的增大，底层数组会自动扩容，这也是为什么数字越大，sys.getsizeof() 返回的内存占用就越大的原因
+语法糖：
+
+1_000_000     # 下划线分隔符，等同于 10000000b1010        # 二进制 = 100o17          # 八进制 = 150xFF          # 十六进制 = 255
+
+---
+
+49. 为什么 0.1 + 0.2 != 0.3？
+
+原因：Python 的 float 遵循 IEEE 754 双精度标准（64 位），使用二进制存储。
+
+“这是因为 Python 中的浮点数底层遵循 IEEE 754 双精度标准，使用二进制进行存储。
+
+像 0.1 和 0.2 这样的十进制小数，在转换成二进制时会变成无限循环小数。由于存储位数有限，底层必须进行截断处理，这就导致了微小的精度丢失。
+
+在实际开发中，如果我们需要比较两个浮点数，应该使用 math.isclose() 方法；如果是涉及到金融金额等需要绝对精确的场景，必须使用 Decimal 模块来进行计算。”
+
+---
+
+50. bool 和 int 有什么关系？
+
+python 中 bool 是 int 的子类！
+
+isinstance(True, int)   # TrueTrue + True             # 2True * 10               # 10False + 1               # 1
+
+真值判定（Truthiness）——以下值在布尔上下文中为 False：
+
+其余所有值都为 True。
+
+---
+
+51. 字符串切片为什么越界不报错？
+
+s = "hello"# 索引越界 → 报错
+s[100]        # IndexError: string index out of range# 切片越界 → 不报错，返回能取到的部分（容错设计）
+s[0:10000]    # "hello"
+s[100:200]    # ""（空字符串）
+
+Python 的设计哲学：切片是"尽力而为"的操作，不报错方便了很多数据处理场景。
+
+常用切片技巧：
+s[-1]      # 最后一个字符 'o'
+s[:-1]     # 去掉最后一个字符 'hell'
+s[::-1]    # 反转字符串 'olleh'
+s[::2]     # 间隔取字符 'hlo'
+AI 实战：input[:max_tokens] 截断上下文，安全无异常。
+
+---
+
+52. 字符串常用方法有哪些？
+
+# 查找
+s.find('sub')       # 返回索引，找不到返回 -1
+s.index('sub')      # 返回索引，找不到抛 ValueError
+s.rfind('sub')      # 从右往左找
+s.count('sub')      # 统计出现次数
+s.startswith('pre') # 前缀判断
+s.endswith('suf')   # 后缀判断# 转换
+s.upper() / s.lower() / s.title() / s.capitalize()
+s.strip() / s.lstrip() / s.rstrip()  # 去除空白
+s.replace('old', 'new')              # 替换# 分割与拼接
+s.split(',')         # 按分隔符分割 → list','.join(['a','b'])  # 用分隔符拼接 → str# 判断
+s.isdigit() / s.isalpha() / s.isalnum() / s.isspace()
+易错点：
+"a  b".split()      # ['a', 'b']     ← 无参智能处理连续空白"a  b".split(' ')   # ['a', '', 'b'] ← 保留空字符串
+
+---
+
+53. f-string 有哪些高级用法？
+
+# 1. 调试神技（Python 3.8+）：自动打印变量名和值
+score = 95print(f"{score=}")          # score=95# 2. 数字格式化
+price = 1234.5678print(f"{price:.2f}")       # 1234.57（保留两位小数）print(f"{price:,.2f}")      # 1,234.57（千分位 + 两位小数）
+
+count = 42print(f"{count:05d}")       # 00042（补零）print(f"{count:#010b}")     # 0b00101010（二进制）# 3. 对齐
+name = "Tom"print(f"{name:<10}")        # 'Tom       '（左对齐）print(f"{name:>10}")        # '       Tom'（右对齐）print(f"{name:^10}")        # '   Tom    '（居中）# 4. 表达式print(f"{'偶数' if count % 2 == 0 else '奇数'}")
+print(f"{[x**2 for x in range(5)]}")
+
+---
+
+54. 列表的底层实现是什么？时间复杂度如何？
+
+Python 列表的底层实现是动态数组。它在内存中是一块连续的空间，但它存储的不是数据本身，而是对象的引用（指针），这也是为什么列表可以容纳不同类型的数据。
+
+在时间复杂度方面：
+
+由于是连续内存，通过索引访问元素的时间复杂度是 O(1)；在尾部追加或弹出元素也是 O(1)。
+
+但是，如果在列表头部或中间插入、删除元素，时间复杂度会退化为 O(n)，因为底层需要移动后续的所有元素。
+
+（加分项）：所以在实际开发中，如果遇到需要频繁在头部进行增删操作的场景（比如实现队列），我不会使用列表，
+
+而是会引入 collections 模块中的 deque（双端队列），它在两端操作的时间复杂度都是 O(1)，性能远超列表。”
+
+---
+
+55. 集合（Set）的核心操作有哪些？
+
+特性：唯一性、无序性（Python 3.7+ dict 有序但 set 无序）、查找 O(1)、底层哈希表。
+
+# 创建（注意：{} 是空字典，不是空集合）
+my_set = set()
+my_set = {1, 2, 3}
+
+# 集合运算
+a = {1, 2, 3}
+b = {2, 3, 4}
+
+a & b   # 交集 {2, 3}       等价于 a.intersection(b)
+a | b   # 并集 {1, 2, 3, 4}  等价于 a.union(b)
+a - b   # 差集 {1}           等价于 a.difference(b)
+a ^ b   # 对称差集 {1, 4}     等价于 a.symmetric_difference(b)# 子集/超集
+{1, 2} <= {1, 2, 3}   # True，子集
+{1, 2, 3} >= {1, 2}   # True，超集# 增删
+my_set.add(4)         # 添加单个
+my_set.update([5, 6]) # 批量添加
+my_set.discard(4)     # 删除，不存在不报错（推荐）
+my_set.remove(4)      # 删除，不存在报 KeyError
+
+---
+
+56. Python 3.10+ 的 match-case 模式匹配怎么用？
+
+Python 3.10 引入的 match-case 不仅仅是简单的 switch 语句，而是强大的结构化模式匹配。
+
+它的核心优势在于，可以在匹配数据结构的同时，完成变量的解包和提取。比如我们可以直接匹配字典的键值对、解包列表的首尾元素，甚至结合 if 语句进行条件守卫。
+
+在实际应用中，比如解析 AI 大模型的 Tool Calling 返回结果时，传统做法需要写一堆 if-else 去判断字典里有没有某个 key。
+
+但用 match-case，我们只需要写 case {"tool": "get_weather", "location": loc}:，就能在确认工具名称的同时，直接把地点提取到变量 loc 中。这种写法替代了繁琐的类型检查，让代码变得非常清晰和优雅
+
+def parse_ai_response(response):
+    match response:
+        # 匹配字典结构，并直接提取 location 的值赋给变量 loc
+        case {"tool": "get_weather", "location": loc}:
+            return f"查询天气：{loc}"
+        
+        # 匹配字典结构，并提取 prompt 的值赋给变量 p
+        case {"tool": "draw_picture", "prompt": p}:
+            return f"开始画图：{p}"
+            
+        # 兜底匹配（相当于 else）
+        case _:
+            return "未知的指令"
+
+# 测试运行
+print(parse_ai_response({"tool": "get_weather", "location": "北京"})) 
+# 输出：查询天气：北京
+
+
+
+
+---
+
+57. 什么是短路逻辑？
+
+“Python 的短路逻辑是指在计算 and 和 or 表达式时，如果通过第一个操作数就能确定整个表达式的结果，Python 就不会再计算第二个操作数。
+
+并且，它返回的是决定结果的那个原始值，而不是布尔值 True 或 False。
+
+在实际开发中，我们经常利用这个特性来简化代码：
+
+第一，利用 or 来设置默认值。比如 a = b or 'default'，当 b 为空或假值时，会自动赋上默认值。
+
+第二，利用 and 进行防御性编程。比如 data and process(data)，只有当 data 不为空时，才会执行后面的处理函数，这样可以有效避免空指针或类型报错，让代码更优雅。”
+
+---
+
+58. enumerate() 有什么用？
+遍历时同时获取索引和值，避免手动维护计数器。
+prompts = ["写首诗", "写代码", "画个图"]
+
+# ❌ 不推荐for i in range(len(prompts)):
+    print(f"第 {i+1} 个: {prompts[i]}")
+
+# ✅ 推荐for i, p in enumerate(prompts, start=1):
+    print(f"第 {i} 个: {p}")
+底层：enumerate 返回一个迭代器，每次产出 (index, element) 元组。
+
+---
+
+59. JSON 处理的核心方法是什么？
+
+在 Python 中处理 JSON 主要使用内置的 json 模块。
+
+核心方法可以分为两类：带 's' 的 loads 和 dumps 用于处理内存的 JSON 字符串；
+
+不带 's' 的 load 和 dump 用于直接读写文件对象。
+
+在实际开发中有两个常见的坑需要注意：
+
+第一是中文乱码问题。dumps 默认会将非 ASCII 字符转义，如果包含中文，必须显式设置 ensure_ascii=False 才能正常显示。为了日志可读性，通常还会配合 indent=2 进行格式化输出。
+
+第二是类型映射差异。比如 Python 中的 True/False 会转成 JSON 的小写 true/false，Python 的 None 会转成 JSON 的 null，而 Python 的元组（tuple）在转成 JSON 时会变成数组（array），反序列化回来时会变成列表（list），这在数据校验时需要特别留意。”
+
+---
+
+60. requests 库的 GET 和 POST 有什么区别？
+
+“GET 主要用于获取数据，参数通过 params 传递并自动拼接在 URL 中；
+
+POST 主要用于提交数据，参数通常通过 json 或 data 放在请求体中，适合传输大量或复杂数据。在调用 AI 大模型接口时，通常使用 POST 并通过 json 参数自动完成字典到 JSON 的序列化。
+
+在生产环境中使用 requests 有两个必须遵守的铁律：
+
+第一，必须设置 timeout 参数。因为 requests 默认没有超时限制，如果不设置，遇到网络阻塞会导致程序无限期挂起，进而耗尽系统资源。
+
+第二，必须处理异常状态。requests 对于 4xx 或 5xx 的错误响应默认不会抛出异常，所以我们在拿到响应后，必须调用 response.raise_for_status()，或者手动检查 status_code。只有确保请求真正成功后，才能去解析 response.json()，以此来保证代码的健壮性。”
+
+面试铁律：生产环境永远设置 timeout，永远做 raise_for_status() 或状态码检查。
+
+---
+
+61. 多线程 ThreadPoolExecutor 怎么用？
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+
+def call_api(prompt):
+    time.sleep(1)  # 模拟网络请求return f"结果: {prompt}"
+
+prompts = ["问题1", "问题2", "问题3"]
+
+# 方式一：map（保持顺序）
+with ThreadPoolExecutor(max_workers=10) as executor:
+    results = list(executor.map(call_api, prompts))
+# 串行 3 秒，并发约 1 秒# 
+
+方式二：submit + as_completed（谁先完成先处理）
+
+with ThreadPoolExecutor(max_workers=10) as executor:
+    futures = {executor.submit(call_api, p): p for p in prompts}
+    for future in as_completed(futures):
+        prompt = futures[future]
+        result = future.result()
+        print(f"{prompt} → {result}")
+
+注意事项：
+- max_workers 不是越大越好，I/O 密集型通常 10-50
+- 注意 API Rate Limit
+- 多线程写同一资源需加锁（threading.Lock）
+
+---
+
+62. 日志系统 Logging 的五大等级是什么？
+
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logging.debug("调试信息")      # 10 - 排查 Bug 用
+logging.info("流水账")         # 20 - 程序正常运行节点
+logging.warning("预警")        # 30 - 不影响运行但有隐患
+logging.error("报错")          # 40 - 某个功能挂了
+logging.critical("核爆")       # 50 - 程序彻底崩了
+
+为什么抛弃 print？
+- 能写入文件，崩溃后可查原因
+- 有等级过滤，生产环境只看 WARNING+
+- 有格式化，自带时间戳、文件名、行号
+- 支持多 handler：同时输出到控制台、文件、远程日志服务
+
+---
+
+63. 文件的异步读写怎么实现？
+
+因为普通的文件 I/O 会阻塞异步事件循环，所以我们不能直接用普通的 open。
+
+在实际开发中，我首选使用第三方库 aiofiles，通过 async with 和 await 语法来实现优雅的异步操作。
+
+如果是 Python 3.9 以上的环境，且不想引入额外的包，我会使用内置的 asyncio.to_thread，将传统的同步文件操作委托给底层线程池去执行，这样同样能避免阻塞主线程。
+
+---
+
+64. .env 环境变量文件怎么用？
+
+# 安装：pip install python-dotenvimport os
+from dotenv import load_dotenv
+
+load_dotenv()  # 读取当前目录的 .env 文件# ✅ 安全写法：读不到返回 None（或默认值）
+key = os.getenv("OPENAI_API_KEY")
+key = os.getenv("OPENAI_API_KEY", "default_key")
+
+# ❌ 危险写法：读不到直接抛 KeyError
+key = os.environ["OPENAI_API_KEY"]
+.env 文件格式：
+OPENAI_API_KEY=sk-xxxxxxxx
+DATABASE_URL=postgresql://user:pass@localhost/db
+DEBUG=true
+
+铁律：永远把 .env 加入 .gitignore！
+
+---
+
+65. print() 函数有哪些高级参数？
+
+# sep：分隔符（默认空格）print("a", "b", "c", sep="-")    # a-b-c# end：结束符（默认换行）print("加载中", end="...")        # 不换行print("完成")                     # 加载中...完成# file：输出到文件with open("log.txt", "w") as f:
+    print("日志内容", file=f)
+
+# flush：强制刷新缓冲区（流式输出必用）for token in stream_response():
+    print(token, end="", flush=True)  # AI 流式输出的关键参数
+
+---
+
+66. 鸭子类型（Duck Typing）是什么？
+
+定义："如果它走起来像鸭子、叫起来像鸭子，那它就是鸭子。" ——不检查类型，只检查行为（方法/属性）。
+
+class Dog:
+    def speak(self):
+        return "汪"class Cat:
+    def speak(self):
+        return "喵"class Robot:
+    def speak(self):
+        return "01010"# 不关心类型，只要有 speak 方法就行def make_sound(animal):
+    return animal.speak()
+
+make_sound(Dog())    # 汪
+make_sound(Cat())    # 喵
+make_sound(Robot())  # 01010 ← 连类型都不同，但照样能跑
+
+面试加分：Python 的 for 循环不检查对象是否是 list，只检查对象是否有 iter 方法。这就是鸭子类型的实际应用。
+
+---
+
+67. 私有属性怎么定义？
+
+class Student:
+    def __init__(self, name, score):
+        self.name = name          # 公有属性
+        self._score = score       # 约定受保护（单下划线，君子协定）
+        self.__secret = "hidden"  # 名义私有（双下划线，名称改写）
+
+s = Student("张三", 90)
+print(s.name)       # "张三" ✅print(s._score)     # 90 ✅（约定不直接访问，但技术上可以）# print(s.__secret) # AttributeError ❌print(s._Student__secret)  # "hidden" ✅（名称改写：_类名__属性名）
+Python 的私有机制：
+
+结论：Python 没有真正的私有，一切靠"自觉"。这是"We are all consenting adults here"的设计哲学。
+
+---
+
+68. 多重继承和 MRO 是什么？
+
+在 Python 中，一个子类可以同时继承多个父类，这就是多重继承。为了解决多重继承带来的方法冲突问题（比如多个父类有同名方法），Python 引入了 MRO（方法解析顺序）。
+
+具体来说，MRO 是一张类的查找顺序表。当我们在子类中调用一个方法时，Python 会严格按照 __mro__ 属性里的顺序去挨个查找，谁先找到就用谁的。
+
+在底层实现上，Python 使用了 C3 线性化算法 来生成这个 MRO 列表。这个算法非常巧妙，它能把复杂的网状继承关系，拉平变成一条单向的线性顺序。
+
+这在解决经典的菱形继承问题（即多个父类继承自同一个祖父类）时非常关键。
+
+如果按照传统的深度优先搜索，祖父类的初始化方法可能会被重复调用两次，造成资源浪费或错误。
+
+但在 Python 中，只要我们配合使用 super() 函数，super() 就会严格按照 MRO 的单向链条往下调用，确保在整个继承网中，每个父类只会被执行一次，完美解决了重复调用的问题。
+
+另外在实际开发中，对于多重继承，我通常会遵循 MixIn（混入）设计模式。也就是让主类继承核心血统，而把额外的单一功能（比如 Runnable、Flyable）封装成 MixIn 类作为插件混入。这样既利用了多重继承的便利，又避免了继承关系过于混乱。”
+
+
+---
+
+69. 浮点数和整数在 Python 中占多大空间？
+import sys
+
+# 整数：可变长度（BigInt）
+sys.getsizeof(0)          # 28 字节（基础对象头 + 0 个 digit）
+sys.getsizeof(1)          # 28 字节
+sys.getsizeof(2**30)      # 32 字节（多了一个 digit）
+sys.getsizeof(10**100)    # 72 字节# 浮点数：固定长度（IEEE 754 双精度）
+sys.getsizeof(0.0)        # 24 字节
+sys.getsizeof(3.14)       # 24 字节
+sys.getsizeof(1e308)      # 24 字节（永远 24 字节）
+结论：
+- 整数：可变长度，随数值增大自动扩容（BigInt 实现）
+- 浮点数：固定 24 字节（16 字节对象头 + 8 字节 double）
+
+- 这也解释了：为什么 Python 整数永不溢出，而浮点数有精度限制
+
+---
+
+
