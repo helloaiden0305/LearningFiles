@@ -1,0 +1,1010 @@
+Python部分
+
+
+---
+
+1. Python 的性能相比 JavaScript 如何？
+
+结论：在纯计算和并发处理上，Node.js (V8) 通常比 Python (CPython) 快得多；但在 AI 和科学计算领域，Python 是不可替代的王者。
+
+维度一：原生执行速度（Node.js 胜）
+- 机制差异：
+  - Node.js (V8 引擎)：拥有 JIT (Just-In-Time) 编译器，运行时把热点代码直接编译成机器码，执行效率接近 C/Go。
+  - Python (CPython)：纯解释执行，逐行读字节码、逐行跑。虽有 PyPy（JIT 实现），但因 C 扩展兼容性问题，主流不用。
+- IO 并发：
+  - Node.js：天生异步非阻塞 (Event Loop)，处理高并发网络请求极强。
+  - Python：虽有 asyncio，但受限于 GIL（全局解释器锁），同一时刻只有一个线程执行 Python 字节码，多线程并行是"假"的。
+
+维度二：AI / 科学计算速度（Python 胜）
+- Python 慢还能做 AI 的真相：Python 只是"遥控器"，真正的繁重计算（矩阵乘法、模型推理）全在底层 C++ / CUDA 里跑。Python 调度开销可忽略不计。
+- 生态优势：NumPy、Pandas、PyTorch、TensorFlow、Scikit-learn 等构成了无可匹敌的 AI 生态链。Node.js 的 TensorFlow.js 远不成熟。
+
+面试加分点：Python 3.12 引入了 Per-Interpreter GIL（子解释器各自持有 GIL），Python 3.13 引入了实验性的 Free-threaded 模式（--disable-gil），正在逐步解决 GIL 瓶颈。
+
+
+---
+
+2. CPython 为什么不做 JIT？
+
+核心原因：
+
+API 兼容性
+- 生态的代价：NumPy、PyTorch、TensorFlow 等库直接操作 CPython 底层 C 结构体（PyObject*），依赖确定的内存布局。
+- JIT 的破坏力：高性能 JIT 的核心手段是改变对象内存布局（如 V8 的 Hidden Classes），以实现直接偏移寻址。
+- 冲突：如果 CPython 改变了内存布局，所有 C 扩展库立刻崩溃（段错误）。Python 官方选择了保生态、牺牲原生速度。
+
+动态性的"噩梦"
+- Python 允许运行时删函数、Monkey Patching、动态修改类等极端操作。
+- Node.js 的 V8 能赌对象形状不变（Hidden Classes），Python 不能赌——需要无数次检查和回退（Deoptimization），JIT 收益有限甚至为负。
+- 历史上 Google 的 Unladen Swallow、Dropbox 的 Pyston 均因此失败。
+
+最新进展：Python 3.13 的 Copy-and-Patch JIT
+- 由微软资助的 "Faster CPython" 计划推动。
+- 原理：预先准备数百个"只缺参数"的机器码模板（Stencils），运行时 Copy 模板 + Patch 参数，拼成可执行机器码。
+- 设计哲学：兼容性第一，速度第二。绝不破坏 C API，目标提升 10%~20%。
+
+
+---
+
+3. JIT 的运行机制是什么？
+
+本质：JIT（Just-In-Time Compilation）= 运行时编译器，把热点代码动态编译成机器码缓存起来。
+
+三步流程：
+
+1. 监控（Profiling）：解释器内置计数器，跟踪每段代码的执行频率，识别"热点代码"（Hot Code）。
+
+2. 编译（Compile）：将热点代码编译成本地机器码，存入代码缓存（Code Cache）。
+
+3. 执行（Execution）：后续再遇到该代码，直接执行缓存的机器码，跳过解释过程。
+
+V8 的多层 JIT 架构：
+
+当 TurboFan 的类型假设被打破时，触发 Deoptimization，回退到 Ignition 重新收集信息。
+
+
+---
+
+4. JS 和 Python 的 JIT 区别是什么？
+
+一句话：JS 是"激进的赌徒"（Speculative Optimization），Python 是"保守的拼图者"（Copy-and-Patch）。
+
+JS (V8)：激进的赌徒
+- 猜测与定制（Hidden Classes）：当 V8 看到你写了一段代码，它会赌你的数据结构（比如对象的属性）永远不会变。于是，它直接为你量身定制一套紧身的高级西装（生成专属的极速机器码）。
+- 赌赢了（速度接近 C 语言）：只要你的数据结构真的没变，程序穿着这套紧身西装跑起来阻力极小，可以直接通过底层内存地址拿到数据，速度快得飞起。
+- 赌输了（Deoptimization 性能惩罚）：如果你在运行途中，突然给对象加了一个新属性（相当于人突然长胖了或者多长了一只手），那这套紧身西装瞬间就撑破了。V8 只能无奈地把这套昂贵的西装扔掉，让你换回最慢的、均码的宽松大褂（回退到慢速的解释执行）。
+
+Python (3.13+)：保守的拼图者
+- 预编译数百个机器码模板（Stencils），运行时 Copy + Patch 参数拼接。
+- 优势：生成速度快、省内存、不改变对象底层结构，完全兼容 C 扩展。
+- 劣势：优化上限低于 V8，无法做投机优化。
+
+
+---
+
+5. 解释型语言和编译型语言的区别？
+
+面试加分点：
+
+现代语言界限模糊——Java 先编译为字节码再由 JVM 解释/JIT 执行；
+
+Python 也会编译为 .pyc 字节码；JS 被 V8 的 JIT 编译成机器码。
+
+严格的"编译 vs 解释"二分法已过时。
+
+
+---
+
+6. Conda 进行版本管理的基本原理？
+
+核心原理：多目录隔离 + 修改 PATH 环境变量。
+
+创建环境：conda create -n my_env python=3.8
+
+1. 在 envs/my_env/ 下新建独立文件夹。
+2. 从 Conda 仓库下载完整的 Python 3.8 解释器 + 基础库。
+3. 每个环境物理隔绝，互不干扰，连底层 C 库都是独立的。
+
+激活环境：conda activate my_env
+- 将 envs/my_env/bin（或 Windows 的 Scripts）插到 PATH 最前面。
+- 系统按 PATH 顺序查找，第一个命中的 python 就是该环境的。
+- conda deactivate 即移除该路径，恢复原样。
+
+
+---
+
+7. Python venv 和 Conda 的区别？
+
+1. venv：轻量级的“纯 Python”管家
+- 出身：Python 官方自带，不需要额外安装任何东西。
+- 管辖范围（有限）：它只能管理纯 Python 的包（通过 pip 安装）。
+- 最大短板（不能装 Python）：venv 自己没有能力下载 Python 解释器。如果你想建一个 Python 3.8 的环境，前提是你电脑上必须已经提前装好了 Python 3.8。
+- 适用场景：普通的 Web 开发（如 Django、Flask）、写写爬虫、轻量级的自动化脚本。
+
+2. Conda：重量级的“全能型”包工头
+- 出身：第三方工具（通常通过 Anaconda 或 Miniconda 安装）。
+- 管辖范围（极其强大）：它不仅能管 Python 包，还能管 C/C++ 库、系统级依赖、甚至显卡计算库（CUDA）。很多科学计算库底层不是 Python 写的，venv 搞不定这些底层依赖，但 Conda 能完美解决。
+- 最大优势（自带 Python）：Conda 可以直接帮你下载并安装任何版本的 Python。就算你电脑上从来没装过 Python 3.8，只要输入一行命令，Conda 就会去云端帮你下好并配置好。
+- 适用场景：人工智能（AI）、数据分析、机器学习。搞这些方向的人几乎 100% 都在用 Conda，因为依赖环境太复杂了。
+
+
+venv 使用要点：
+创建环境（使用指定版本的 Python）
+python3.8 -m venv venv38
+
+激活# Windows: .\venv38\Scripts\activate# Mac/Linux: source venv38/bin/activate# 退出
+deactivate
+
+
+---
+
+8. 什么是 UTF-8？
+
+定义：UTF-8 是 Unicode 的一种变长编码实现（Variable-Length Encoding）。
+
+Unicode（统一码/万国码） = 全球字符的“身份证号登记册”
+- 它是一个抽象的规则集合。它的唯一工作，就是把世界上所有的文字、符号、Emoji表情收集起来，给每一个字符分配一个独一无二的数字编号（比如，汉字“中”的编号是 20013，在十六进制下是 4E2D）。
+- 注意： Unicode 只规定了“这个字对应哪个数字”，但并没有规定这个数字在电脑硬盘里到底该怎么存成 0 和 1。
+
+UTF（Unicode Transformation Format） = 制作身份证的“具体工艺”
+- 它是一个具体的存储和传输方案。电脑底层只认识 0 和 1，UTF 的任务就是把 Unicode 里的那个数字编号，翻译成电脑能懂的 0 和 1 存进硬盘里。
+- 比如，怎么把“中”字的编号 20013 变成二进制？UTF-8 规定了一种省空间的切分法（用3个字节存），UTF-16 规定了另一种切分法（用2个或4个字节存）。
+
+面试加分点：
+- UTF-8 兼容 ASCII（ASCII 字符只用 1 字节，编码完全相同）。
+- Python 3 的 str 内部使用 Unicode（根据字符范围动态选择 Latin-1 / UCS-2 / UCS-4 存储），bytes 才是 UTF-8 字节流。
+- '中'.encode('utf-8') → b'\xe4\xb8\xad'（3 字节）。
+- UTF-8 是一种变长编码。在 Agent 开发中，我们经常需要让大模型读取网页或本地文件，如果不用 UTF-8 统一处理字节流，极容易在传给大模型时出现乱码，导致 Prompt 解析失败
+
+
+---
+
+9. Python 的小整数池优化（CPython 实现细节）
+小整数池（Small Integer Cache）：
+- CPython 启动时预创建 [-5, 256] 范围内的所有整数对象，全局单例复用。
+- a = 10; b = 10 → a is b 为 True（同一个缓存对象）。
+- a = 1000; b = 1000 → 交互模式下 a is b 为 False（超出缓存，创建了两个不同对象）。
+字符串驻留（String Interning）：
+- 满足标识符规则的短字符串（如 "hello"）会被自动驻留，复用同一对象。
+- "hello" is "hello" → True；"hello world" is "hello world" → 可能为 False。
+脚本模式 vs 交互模式的差异：
+- 脚本模式下编译器会对同一代码块内的常量做常量折叠优化，可能导致超出小整数池范围的数字也共享对象。
+- 面试铁律：比较值用 ==，比较身份用 is，永远不要依赖驻留行为写业务逻辑。
+
+
+---
+
+10. Python 有哪些基本数据类型？可变与不可变的区别？
+
+不可变类型：int、float、bool、str、tuple、frozenset、bytes
+
+可变类型：list、dict、set、bytearray
+
+不可变类型 - 修改创建新对象
+- a = "hello"
+- b = a
+- a = a + " world"  # a 指向新对象，b 仍是 "hello"print(id(a) == id(b))  # False
+
+可变类型 - 原地修改
+a = [1, 2, 3]
+b = a
+a.append(4)  # a 和 b 都变成 [1, 2, 3, 4]print(id(a) == id(b))  # True
+
+底层原理：不可变对象的 ob_item（数据区）在创建后不可修改，任何"修改"操作都返回新对象。可变对象允许直接修改数据区。
+
+面试追问：为什么字符串是不可变的？
+
+- (1) 哈希安全：字符串可作为字典键和集合元素，哈希值创建后不变；
+- (2) 线程安全：多线程共享无需加锁；
+- (3) 驻留优化：不可变才能安全复用同一对象。
+
+
+---
+
+11. 列表（list）和元组（tuple）的区别？
+列表可变 元组不可变
+
+- 面试加分点：CPython 对小 tuple（长度 ≤ 20）有缓存池，释放后不归还系统而是缓存复用，创建速度比 list 快 5-10 倍。
+
+import sys
+sys.getsizeof([1, 2, 3])   # 88 字节（含预留空间）
+sys.getsizeof((1, 2, 3))   # 64 字节（紧凑）
+
+
+---
+
+12. is 和 == 的区别？
+
+a = [1, 2, 3]
+b = [1, 2, 3]
+c = a
+
+a == b   # True（值相等）
+
+a is b   # False（不同对象）
+
+a is c   # True（c 指向 a，同一对象）# 小整数池陷阱
+
+x = 256;  y = 256;  x is y  # True（缓存池内）
+
+x = 257;  y = 257;  x is y  # False（超出缓存，交互模式下）
+
+第一，**== 比较的是对象的值（内容）**是否相等，而 **is 比较的是对象的内存地址（身份）**是否指向同一个底层对象。
+
+第二，需要注意 Python 的**“小整数池”机制（-5到256）**，为了优化性能，该范围内的整数会被全局缓存复用，因此即使是分别声明的变量，用 is 比较也会返回 True。
+
+第三，在工程规范中，判断空值必须使用 is None，因为 None 是全局唯一的单例对象，使用 is 比较不仅执行效率最高，还能防止自定义对象恶意重写 eq 方法导致的逻辑误判。
+
+面试铁律：判断 None 时必须用 is None，而不是 == None
+
+- 因为 None 是全局单例，is 更快且语义更准确；而 == 可能被自定义的 eq 覆盖导致意外行为。
+
+
+---
+13. 深拷贝和浅拷贝的区别？
+
+浅拷贝：复制外层容器，内层对象共享引用
+
+深拷贝：递归复制所有层级，完全独立
+
+原始:  original ──→ [ref_A, ref_B]
+                      │        │
+                      ▼        ▼
+                    [1,2]    [3,4]
+
+浅拷贝: shallow  ──→ [ref_A, ref_B]  ← 共享内层引用
+深拷贝: deep     ──→ [ref_C, ref_D]  ← 独立副本
+                      │        │
+                      ▼        ▼
+                    [1,2]    [3,4]   (新对象)
+import copy
+
+original = [[1, 2], [3, 4]]
+shallow = copy.copy(original)       # 浅拷贝
+deep = copy.deepcopy(original)      # 深拷贝
+
+original[0][0] = 999print(shallow[0][0])  # 999 ← 浅拷贝受影响！print(deep[0][0])     # 1   ← 深拷贝不受影响
+
+浅拷贝的其他方式：list.copy()、切片 a[:]、list(a)、dict.copy()
+
+面试追问：什么时候需要深拷贝？
+
+答：需要完全独立副本、不想修改影响原数据时。典型场景：缓存数据快照、回滚操作、多线程中隔离可变数据。注意 deepcopy 能正确处理循环引用（内部维护 memo 字典）。
+
+
+---
+
+14. *args 和 **kwargs 是什么？
+
+把 *args 和 ****kwargs 想象成 Python 函数里的****“万能收纳袋”，专门用来装多余的、不确定数量的参数**。
+
+这其实就相当于 Java 里的可变参数（比如 String... args），但 Python 把它分成了两种：
+
+1. *args：装“没名字”的参数（打包成元组）
+
+如果你传的参数比函数要求的参数多，多出来的那些没有指定名字的参数（位置参数），就会被 * 打包成一个元组（Tuple），放进 args 这个收纳袋里。
+
+大白话例子：函数只要2个参数，你硬塞了4个数字 1, 2, 3, 4。前两个给了固定的变量，多出来的 3 和 4 没地方去，就被打包成 (3, 4) 塞进了 args 里。
+
+2. **kwargs：装“有名字”的参数（打包成字典）
+
+如果你传了类似 name="Tom" 这种带名字的参数（关键字参数），但函数定义里并没有专门写变量去接收它，它就会被 ** 打包成一个字典（Dictionary），放进 kwargs 里。
+
+大白话例子：你传了 name="Tom", age=20，这两个键值对就会被打包成字典 {'name': 'Tom', 'age': 20} 塞进 
+
+在实际工程中，它们最常用于编写装饰器或类的继承（如 super().__init__），用来实现参数的无损透传，不需要关心具体传了什么参数，直接原封不动地抛给下一层。
+
+
+---
+
+15. 什么是装饰器？怎么写？
+
+Python 的装饰器，本质上就是 Java 里的 AOP（面向切面编程）+ 注解（Annotation）。
+
+就像给手机套个手机壳，手机还是那个手机（核心业务逻辑没变），但多了防摔功能（附加逻辑）。
+
+from functools import wraps
+
+1. 定义装饰器（相当于定义一个 AOP 切面）
+def my_decorator(func):
+    @wraps(func)  # 面试必考：用来保留原函数的名字和注释
+    def wrapper(*args, **kwargs):
+        print("【前置增强】执行前：比如权限校验、打日志")
+        result = func(*args, **kwargs)  # 真正执行原来的函数
+        print("【后置增强】执行后：比如计算耗时、清理资源")
+        return result
+    return wrapper
+
+2. 使用装饰器（相当于 Java 里的 @Log 或 @Transactional）
+@my_decorator
+def do_work():
+    print("核心业务逻辑运行中...")
+
+3. 调用测试
+do_work()
+
+三句话总结（直接背这个）：
+
+第一，装饰器的本质是一个高阶函数（接收函数作为参数，并返回一个新函数），它体现了 AOP（面向切面编程） 的思想，可以在不修改原函数代码的前提下，动态地增加功能。
+
+面试追问：@functools.wraps 有什么用？
+
+答：保留原函数的 name、doc、module 等元信息。不加的话，装饰后函数名变成 wrapper，影响调试、日志和文档生成。
+
+
+---
+
+16. 闭包是什么？有什么用？
+
+定义：闭包 = 内部函数 + 引用的外部作用域变量。即使外部函数已执行完毕，变量仍保存在内存中（通过 closure 属性持有）。
+
+def counter():
+    count = 0def increment():
+        nonlocal count  # 声明使用外层变量
+        count += 1return count
+    return increment
+
+c = counter()
+print(c())
+
+2. 形成条件（缺一不可）：
+- 嵌套：函数内部嵌套函数。
+- 引用：内部函数引用了外部函数的变量。
+- 返回：外部函数把内部函数 return 出来。
+
+3. 核心作用：
+
+- 状态保持与隔离：避免全局变量污染，实现轻量级的数据封装（类似简单的类）。
+- 实现装饰器：Python 装饰器的底层原理就是闭包。
+
+
+---
+
+17. 解释 LEGB 作用域规则
+
+变量查找顺序：L → E → G → B
+
+假设你在找一把“锤子”（变量 x），Python 会按照以下顺序帮你找，一旦找到，立马停止：
+
+L (Local - 局部作用域)：你自己的口袋。
+
+Python 首先看你当前所在的函数内部有没有定义这个变量。
+
+E (Enclosing - 嵌套作用域)：你所在的房间（外层函数）。
+
+如果口袋里没有，就去包着你的外层函数里找（这就是我们前面学的闭包环境）。
+
+G (Global - 全局作用域)：整个院子（全局）。
+
+如果房间里也没有，就去文件最外层找（写在所有函数外面的变量）。
+
+B (Built-in - 内置作用域)：五金店（Python自带的）。
+
+如果院子里也没有，就去 Python 自带的系统库里找（比如 print、len 这些词，你没定义过也能用，因为它们在五金店里）。
+
+
+面试加分点：Python 没有块级作用域（if/for 内定义的变量在外部可见），这和 JS 的 let/const 不同。
+
+在很多别的语言（比如 JavaScript、C++）里，如果你在一个 if 或者 for 循环里定义了一个变量，一旦循环结束，这个变量就死掉了（这叫块级作用域）。
+
+但是 Python 很随意，if 和 for 根本拦不住变量！
+
+比如：
+
+for i in range(3):
+    password = "123"  # 在 for 循环内部定义的变量
+
+循环早就结束了，但在外面依然能打印出来！
+
+print(password)  # 正常输出：123
+
+print(i)         # 正常输出：2
+
+这就是面试官想听到的：Python 只有函数能隔离变量（也就是 L 和 E），if 和 for 这种代码块是隔离不了变量的，里面的变量会“漏”到外面来！
+
+
+---
+
+18. 迭代器和生成器的区别？
+
+迭代器 - 手动实现class MyRange:
+    def __init__(self, n):
+        self.n = n
+        self.current = 0def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.current < self.n:
+            val = self.current
+            self.current += 1return val
+        raise StopIteration
+
+生成器 - 等价但更简洁def my_range(n):
+    current = 0while current < n:
+        yield current
+        current += 1
+
+
+---
+
+19. yield 的工作原理？
+
+yield 的高级用法——双向通信：
+def accumulator():
+    total = 0
+    while True:
+        value = yield total   # 既发送 total，又接收外部 send 的值
+        total += value
+
+g = accumulator()
+next(g)         # 启动生成器，返回 0
+g.send(10)      # 返回 10
+g.send(20)      # 返回 30
+
+第一：它的核心原理是“原地暂停”。
+
+普通函数遇到 return 就彻底结束了。但遇到 yield，函数会交出一个值，然后原地暂停。等下次调用 next() 时，它会从暂停的地方接着往下跑。
+
+第二：它支持双向通信。
+
+我们不仅能从里面拿数据，还能用 send() 方法，把外面的数据塞回到函数里面去。
+把 value = yield total 这行代码拆成两半来看，中间的等号（=）就是暂停线：
+
+第一步：先看等号右边（往外吐）
+
+代码跑到 yield total 时，把 total 的值扔到外面，然后立刻死死卡在等号（=）这里，一动不动。它在等外面的指令。
+
+第二步：再看等号左边（往里收）
+
+当你在外面执行 g.send(10) 时，这个 10 会直接砸在刚才卡住的 yield 身上。
+
+这时候，yield total 这一整块就变成了 10。
+
+接着代码苏醒，继续往下跑，把 10 赋值给左边，就变成了 value = 10。
+
+一句话总结：
+
+send(10) 就是专门用来**“填补”**那个暂停的 yield 的！它把 10 塞给 yield，yield 转身就把 10 交给了 value。
+
+
+第三：它最大的优点是“极度节省内存”。
+
+因为它采用的是惰性求值，也就是**“用一个，才造一个”。所以在处理几百万条大数据时，它永远不会撑爆内存**。
+
+
+---
+
+20. 列表推导式和生成器表达式的区别？
+
+列表推导式 [] - 立即计算，占内存
+list_comp = [x**2 for x in range(1_000_000)]  # 立即创建100万个元素# 生成器表达式 () - 惰性计算，省内存
+gen_exp = (x**2 for x in range(1_000_000))    # 只创建一个生成器对象import sys
+print(sys.getsizeof(list_comp))  # 约 8 MBprint(sys.getsizeof(gen_exp))    # 约 200 字节
+
+选择原则：
+- 数据量小、需要多次遍历、需要索引访问 → 列表推导式
+- 数据量大、只遍历一次、流式处理 → 生成器表达式
+
+面试加分：生成器表达式可以直接作为函数参数，省略外层括号：sum(x**2 for x in range(100))
+
+
+---
+
+21. GIL 是什么？为什么 Python 多线程"慢"？
+
+GIL（Global Interpreter Lock，全局解释器锁）：
+- CPython 中的一把全局互斥锁，同一时刻只有一个线程可以执行 Python 字节码。
+- 目的：保护 CPython 的引用计数机制免受竞态条件影响。
+- 后果：多线程无法利用多核 CPU 做并行计算（CPU 密集型任务）。
+
+GIL 的释放时机：
+1. 执行 I/O 操作时（文件读写、网络请求）→ 所以多线程对 I/O 密集型有效。
+2. 调用 C 扩展时（NumPy 的矩阵运算会在 C 层释放 GIL）。
+3. 每执行一定数量的字节码指令后（Python 3.2+ 改为每 5ms 切换一次）。
+
+突破 GIL 的方式：
+- multiprocessing：多进程，各自有独立 GIL
+- C 扩展：在 C 代码中手动释放 GIL
+- Python 3.13：实验性 --disable-gil（Free-threaded CPython）
+
+
+---
+
+22. 多线程和多进程的区别？什么时候用哪个？
+
+1. CPU 用进程（算力密集型任务）
+- 什么是 CPU 任务？ 疯狂消耗脑力的活儿，比如：人脸识别、处理 10 个 G 的表格、疯狂算数学题。
+- 为什么用多进程？ Python 有一个“紧箍咒”（叫 GIL 锁），导致多线程在算数学题时，同一时刻只能有一个人在算，根本快不起来。所以必须用多进程（直接雇佣多个独立的人，每个人发一台电脑），大家各算各的，速度直接翻倍！
+
+2. I/O 用线程（等待密集型任务）
+- 什么是 I/O 任务？ 不需要动脑子，**全靠“等”**的活儿。比如：下载电影、请求网页、读写硬盘。
+- 为什么用多线程？ 假设你在用微波炉热饭（I/O 等待），饭要热 3 分钟。这 3 分钟里你的大脑（CPU）是闲着的。多线程就是让你在等饭热的同时，去顺手洗个衣服、扫个地。因为全是在“等”，所以用轻量级的线程来回切换最合适。
+
+3. 高并发 I/O 用协程（海量等待任务）
+- 什么是高并发 I/O？ 比如你要同时下载 10000 张图片。
+- 为什么用协程？ 如果用多线程，系统要创建 10000 个线程，电脑内存直接就撑爆死机了。协程就是“超级版的多线程”，它完全在代码层面运行，极度节省内存。一个人就能轻松管理 10000 个下载任务，谁下载好了就处理谁。
+
+
+记忆口诀：I/O 用线程，CPU 用进程，高并发 I/O 用协程。
+
+
+---
+
+23. async/await 协程是什么？
+
+协程 = 单线程内的并发，通过事件循环（Event Loop）调度。
+
+多线程（抢占式）:
+线程1: ████░░░░████░░░░
+线程2: ░░░░████░░░░████
+       ↑ 操作系统强制切换
+
+协程（协作式）:
+协程1: ████──await──████──await──
+协程2:     ████──await──████──await
+           ↑ 遇到 await 主动让出
+import asyncio
+
+async def fetch_data(name, delay):
+    print(f"{name} 开始")
+    await asyncio.sleep(delay)  # 遇到 await，让出控制权print(f"{name} 完成")
+    return f"{name}的结果"async def main():
+    results = await asyncio.gather(
+        fetch_data("任务1", 2),
+        fetch_data("任务2", 1),
+        fetch_data("任务3", 3),
+    )
+    print(results)
+
+asyncio.run(main())
+总耗时约 3 秒（最长的那个），而不是 6 秒
+
+优势：
+- 比多线程更轻量（无线程切换开销，协程对象仅几百字节）
+- 无锁问题（单线程，不存在竞争条件）
+- 适合高并发 I/O 场景（Web 服务器、爬虫、API 调用）
+
+面试加分点：asyncio.gather 并发执行多个协程；asyncio.create_task 创建任务；async for 异步迭代；async with 异步上下文管理。
+
+
+---
+
+24. init 和 new 的区别？
+
+class MyClass:
+    def __new__(cls, *args, **kwargs):
+        print("1. __new__: 创建对象，分配内存")
+        instance = super().__new__(cls)
+        return instance  # 必须返回实例，否则 init 不会被调用def __init__(self, name):
+        print("2. __init__: 初始化对象，设置属性")
+        self.name = name
+
+obj = MyClass("test")
+
+第一，它们的职责完全不同。
+- new 是一个静态方法，负责对象的创建，也就是在内存中开辟空间，‘无中生有’地造出一个空对象；
+- 而 init 是一个实例方法，负责对象的初始化，也就是给 new 创建好的这个对象绑定各种属性。
+
+第二，它们的执行顺序和返回值要求不同。
+- 当我们实例化一个类时，Python 会先执行 __new__，后执行 __init__。
+- 这里有一个关键点：__new__ 必须主动 return 创建好的实例对象。如果它不返回，或者返回了其他类的对象，那么 init 就绝对不会被触发。而 init 只是负责修改对象状态，不需要返回值（默认返回 None）。
+
+第三，它们的使用场景不同。
+- 在 99% 的日常开发中，底层的 object.__new__ 已经帮我们做好了内存分配的工作，所以我们只需要写 init 来接收参数就可以了。
+- 但如果我们需要重写 __new__，通常是为了应对两种特殊场景：
+
+1.实现单例模式：在 new 里面加个判断，如果实例已经存在就直接返回旧实例，确保全局只有这一个对象。
+
+2.继承不可变类型（比如 str、int、tuple）：因为不可变类型一旦创建就不能再修改了，所以我们必须在 new 这个创建阶段就把数据定制好，如果等到 init 阶段就来不及了。
+
+
+
+---
+
+25. Python 中如何实现单例模式？
+
+方法一：使用 new（推荐，面试必背）
+class Singleton:
+    _instance = None
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+s1 = Singleton()
+s2 = Singleton()
+print(s1 is s2)  # True
+多线程下，需要额外加入双重校验
+
+方法二：使用装饰器
+def singleton(cls):
+    instances = {}
+    def get_instance(*args, **kwargs):
+        if cls not in instances:
+            instances[cls] = cls(*args, **kwargs)
+        return instances[cls]
+    return get_instance
+
+@singletonclass Database:
+    pass
+
+方法三：使用模块（最 Pythonic）
+Python 的模块天然是单例——模块在第一次 import 时执行，后续 import 直接返回缓存。
+
+应用场景：数据库连接池、配置管理器、日志对象、线程池。
+面试追问：多线程下的单例？ 方法一需要加锁（threading.Lock），否则可能创建多个实例。
+
+
+---
+
+26. 类方法、静态方法、实例方法的区别？
+
+1. 实例方法（自带 self 参数）
+
+权限最大，既能访问实例属性，也能访问类属性。（等同于 Java 的普通方法）
+
+2. 类方法（自带 cls 参数，加 @classmethod）
+
+只能访问类属性。
+
+核心场景：做“工厂方法”。因为 Python 只能有一个 init 构造函数，如果想提供多种创建对象的方式（比如从字符串解析生成对象），就用类方法 return cls(...)。
+
+3. 静态方法（啥都不带，加 @staticmethod）
+
+没有任何默认参数，既不能访问实例，也不能访问类。
+
+核心场景：纯工具函数。它本质上就是个普通函数，放在类里面只是为了方便归类管理。（这才是真正等同于 Java 的 static 方法）。
+
+一句话口诀：
+实例方法操作对象，类方法用来创建对象（替代重载构造函数），静态方法就是个打杂的工具人。
+
+
+---
+
+27. @property 装饰器有什么用？
+
+作用：把方法伪装成属性访问，可以添加校验逻辑，实现 getter/setter/deleter。
+
+class User:
+    def __init__(self, age):
+        self._age = age  # 约定加下划线，表示这是受保护的内部变量
+
+    # 1. Getter：获取值时触发（相当于 getAge）
+    @property
+    def age(self):
+        return self._age
+
+    # 2. Setter：赋值时触发（相当于 setAge），最常用来做校验！
+    @age.setter
+    def age(self, value):
+        if not isinstance(value, int) or value < 0:
+            raise ValueError("年龄必须是非负整数")
+        self._age = value
+
+    # 3. Deleter：删除时触发（拦截 del user.age）
+    @age.deleter
+    def age(self):
+        raise AttributeError("不允许删除年龄")
+
+测试：
+user = User(25)
+print(user.age)    # 触发 @property，输出 25
+user.age = 30      # 触发 @age.setter，校验通过，修改成功
+user.age = -1    # 触发 @age.setter，校验失败，抛出 ValueError
+
+
+面试加分点：@property 实现了描述符协议（Descriptor Protocol），底层是通过 get、set、delete 方法实现的。
+
+
+---
+
+28. Python 的垃圾回收机制？
+
+三种机制协同工作：
+
+1. 引用计数（主要）：每个对象维护 ob_refcnt 计数器
+- +1：创建引用、赋值、传参、添加到容器
+- -1：del、变量离开作用域、引用被覆盖
+- =0 时立即回收（确定性回收，无延迟）
+
+2. 标记-清除（Mark-Sweep）：解决循环引用
+- 从根对象（全局变量、调用栈）出发，标记所有可达对象
+- 未被标记的对象即为不可达，回收之
+
+3. 分代回收（Generational GC）：
+- 第 0 代：新创建的对象，检查最频繁
+- 第 1 代：经过一次 GC 存活的对象
+- 第 2 代：经过两次 GC 存活的对象，检查最少
+- 基于假设："大多数对象朝生夕死"
+
+面试追问：如何手动触发 GC？ import gc; gc.collect()
+
+
+---
+
+29. Python 异常处理的完整语法？
+
+try:
+    result = risky_operation()
+except ValueError as e:
+    # 处理特定异常print(f"值错误: {e}")
+except (TypeError, KeyError) as e:
+    # 处理多种异常print(f"错误: {e}")
+except Exception as e:
+    # 兜底（捕获所有非系统退出异常）print(f"未知错误: {e}")
+    raise  # 重新抛出，不吞异常else:
+    # 没有异常时执行（把正常逻辑和异常处理分开）print("执行成功")
+finally:
+    # 无论如何都执行（清理资源）
+    cleanup()
+
+异常层次（部分）：
+BaseException
+├── SystemExit
+├── KeyboardInterrupt
+├── GeneratorExit
+└── Exception
+    ├── ValueError
+    ├── TypeError
+    ├── KeyError
+    ├── IndexError
+    ├── FileNotFoundError
+    ├── ConnectionError
+    └── ...
+
+面试铁律：永远不要裸 except: 或 except Exception: 后吞掉异常。至少要 logging.exception(e) 记录日志。
+
+
+---
+
+30. enter 和 exit 方法的作用？
+
+enter 和 exit 是 Python 中上下文管理器协议（Context Manager Protocol）的核心方法。它们主要用来配合 with 语句，实现资源的自动获取与释放。
+
+enter 方法：在进入 with 代码块时被自动调用，主要负责准备资源（比如打开文件、建立数据库连接）。它的返回值会被赋值给 as 后面的变量。
+
+exit 方法：在离开 with 代码块时被自动调用，主要负责清理资源（比如关闭文件、断开连接）。它的强大之处在于，无论 with 块中的代码是正常执行完毕，还是中途抛出了异常，__exit__ 都必定会被执行，这就完美避免了资源泄露的问题。
+
+class DatabaseConnection:
+    def __enter__(self):
+        print("连接数据库")
+        self.conn = create_connection()
+        return self  # 赋值给 as 后的变量def __exit__(self, exc_type, exc_val, exc_tb):
+        print("关闭连接")
+        self.conn.close()
+        return False  # False = 不抑制异常，True = 吞掉异常with DatabaseConnection() as db:
+    print("执行SQL")
+    # 即使这里抛异常，__exit__ 也会被调用
+
+更简洁的方式——contextlib：
+from contextlib import contextmanager
+
+@contextmanager
+def managed_resource():
+    print("获取资源")
+    try:
+        yield "resource"   # yield 之前 = __enter__，之后 = __exit__finally:
+        print("释放资源")
+
+
+---
+
+31. 读取大文件的最佳实践？
+
+❌ 错误：一次性读取，10GB 文件 = 10GB 内存
+with open("huge_file.txt") as f:
+    content = f.read()
+
+✅ 方法一：逐行读取（文件对象本身就是迭代器）
+def read_large_file(filename):
+    with open(filename, 'r') as f:
+        for line in f:  
+惰性读取，一次只在内存中保留一行
+        yield line.strip()
+缺点在于 万一一行太爆，也会搞坏内存
+
+for line in read_large_file("huge_file.txt"):
+    process(line)
+
+✅ 方法二：分块读取二进制文件
+def read_chunks(filename, chunk_size=8192):
+    with open(filename, 'rb') as f:
+        while chunk := f.read(chunk_size):  # 海象运算符 :=yield chunk
+小缺点：如果是读取文本，固定大小的切割可能会把一个完整的单词或汉字从中间劈开（比如一半在上一块，一半在下一块），处理起来需要额外的拼接逻辑。
+
+✅ 方法三：mmap 内存映射（适合随机访问大文件）
+import mmap
+with open("huge_file.txt", 'r') as f:
+    with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+        print(mm[100:200])  # 随机访问，不需加载全部
+
+
+---
+
+32. 如何去除列表重复元素并保持顺序？
+
+original = [3, 1, 2, 1, 3, 2]
+
+方法一：dict.fromkeys()（Python 3.7+，推荐，简洁高效）
+result = list(dict.fromkeys(original))  # [3, 1, 2]
+
+方法二：集合 + 列表推导式
+seen = set()
+result = [x for x in original if not (x in seen or seen.add(x))]
+
+方法三：如果不需要保持顺序
+result = list(set(original))  # 无序
+原理：Python 3.7+ 字典保证插入顺序，dict.fromkeys() 利用字典键的唯一性去重。
+
+
+---
+
+33. append() 和 extend() 的区别？
+
+a = [1, 2]
+a.append([3, 4])
+print(a)  # [1, 2, [3, 4]]  ← 整体作为一个元素追加
+
+a = [1, 2]
+a.extend([3, 4])
+print(a)  # [1, 2, 3, 4]    ← 逐个元素追加（等价于 +=）
+
+
+
+---
+
+34. 字典的底层实现原理？
+
+- 底层结构：哈希表
+- Python 3.7+：字典保证插入顺序（CPython 3.6 已实现，3.7 写入语言规范）
+- 时间复杂度：查找、插入、删除平均 O(1)，最坏 O(n)（哈希碰撞极端情况）
+
+哈希表工作流程：
+
+1. 计算键的哈希值：hash(key)
+
+2. 哈希值对数组长度取模，得到索引位置
+
+3. 如果该位置为空，直接插入
+
+4. 如果碰撞（不同键哈希到同一位置），使用开放寻址法（线性探测）找下一个空位
+
+面试追问：为什么字典键必须是不可变类型？
+
+答：键的哈希值必须在生命周期内不变。如果键是可变的（如 list），修改后哈希值变化，就再也找不到原来存的数据了。
+
+
+---
+
+35. lambda 表达式什么时候用？
+
+定义：匿名函数，只能包含一个表达式，自动返回结果。
+
+def 写法def add(x, y):
+    return x + y
+
+lambda 等价写法
+add = lambda x, y: x + y
+
+典型使用场景：
+
+排序的 key 参数
+students = [("Tom", 90), ("Jerry", 85), ("Bob", 95)]
+students.sort(key=lambda s: s[1], reverse=True)
+
+map/filterlist(map(lambda x: x**2, [1, 2, 3]))       # [1, 4, 9]list(filter(lambda x: x > 2, [1, 2, 3, 4])) # [3, 4]# 字典排序
+d = {'b': 2, 'a': 1, 'c': 3}
+sorted(d.items(), key=lambda item: item[1])
+
+注意：复杂逻辑不要用 lambda，可读性差。Python 之禅："可读性很重要"。
+
+
+---
+
+36. Typing 和 Pydantic 的区别？
+
+typing = 静态检查（写代码时）。它就像 Word 文档里的拼写检查，你打错字了，编辑器（IDE）会给你画红线提示，但它绝对不会阻止你保存和运行代码。
+
+Pydantic = 运行时校验（跑代码时）。代码真正跑起来的时候，只要数据流进来了，它就会强制拦截、转换或报错。
+
+typing - 只是提示，运行不校验
+
+from typing import List
+def greet(name: str) -> str:
+    return f"Hello, {name}"
+
+greet(123)  # 运行不报错！但 IDE/mypy 会警告
+
+Pydantic - 运行时校验 + 类型转换
+
+from pydantic import BaseModel
+class User(BaseModel):
+    name: str
+    age: int
+
+User(name="Tom", age="25")    # age 自动转为 int(25)
+User(name="Tom", age="abc")   # ValidationError!
+
+面试加分点：FastAPI 深度集成 Pydantic，请求参数自动校验 + 自动生成 OpenAPI 文档。
+
+
+---
+
+37. if name == "main" 的作用？
+
+作用：判断当前文件是被直接运行还是被导入。
+
+utils.py
+def helper():
+    return "帮助函数" if name == "__main__":
+
+只有 python utils.py 直接运行时才执行
+被 import utils 时不执行print("测试 helper:", helper())
+
+原理：
+- 直接运行时：name 被设为 "main"
+- 被导入时：name 被设为模块名（如 "utils"）
+
+应用场景：模块的单元测试入口、脚本的命令行入口、避免导入时的副作用。
+
+
+---
+
+38. 相对导入和绝对导入？
+
+1. 绝对导入 (Absolute Import) —— 官方强烈推荐
+
+概念：就像写完整的家庭住址（省-市-区-街道），无论你在哪个文件里写代码，导入路径都是从项目的最顶层根目录开始往下写。
+
+优点：清晰明确，代码可读性极高。哪怕你把当前文件移动到其他文件夹，导入代码也不需要修改。
+
+from mypackage.utils import helper
+from mypackage.core.config import settings
+
+2. 相对导入 (Relative Import) —— 仅限包内部使用
+
+概念：就像说“我隔壁的邻居”或“楼上的住户”，它不写全路径，而是使用点号（.）来表示相对于当前文件的位置。
+
+符号含义：
+. 代表当前目录
+.. 代表上一级目录（父目录）
+
+
+from . import utils           # 导入当前目录下的 utils 模块
+from ..core import config     # 导入上一级目录中的 core 子包里的 config
+
+🚨 面试铁律（极易踩坑）：
+
+相对导入只能在包（Package）的内部相互调用时使用，绝对不能在被直接运行的主程序（顶层脚本）中使用！ 如果你直接 python main.py，而里面包含了相对导入，程序会直接报错。
+
+相对导入（带点的导入）就像是按家谱找亲戚。如果你直接运行一个文件，它就成了“孤儿”（名字变成了 __main__），家谱断了，自然就找不到亲戚了。
+
+
+---
+
+39. init.py 的作用？
+
+backend/
+├── app/                     ← 包（package）
+│   ├── __init__.py         ← 标识这是一个包
+│   ├── main.py
+│   └── core/               ← 子包
+│       ├── __init__.py     ← 标识这是一个包
+│       └── config.py
+
+核心作用：
+
+1. 标识包（最基础）：
+它告诉 Python 当前文件夹是一个合法的包（Package），而不是普通文件夹。虽然 Python 3.3 之后支持不写，但实际工程规范中依然要求保留。
+
+2. 简化导入路径（最常用）：
+它相当于包的**“前台”**。我们可以把深层子模块里的核心函数提前导入到 __init__.py 中。这样外部调用时，直接 from 包名 import 功能 即可，不用写冗长的底层路径。
+
+3. 控制导出范围（配合 __all__）：
+当外部使用 from package import *（星号导入）时，为了防止暴露内部临时变量，我们可以在 __init__.py 中定义 all = ["暴露的模块名"]，作为一个白名单，精准控制导出内容。
+
+4. 执行初始化逻辑：
+当包第一次被导入时，__init__.py 里的代码会自动执行。所以很适合在这里放一些包级别的初始化操作，比如配置全局日志、初始化数据库连接等。”
+
+
+---
